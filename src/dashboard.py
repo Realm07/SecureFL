@@ -25,10 +25,16 @@ from utils import visualize_tabular_results, visualize_predictions, create_time_
 st.set_page_config(layout="wide", page_title="Secure Federated Learning Demo")
 speed = 0.5
 
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ICON_DIR = os.path.join(BASE_DIR, "assets")
+
+
 @st.cache_data
 def get_image_as_base64(path):
     """Encodes a local image file into Base64 for HTML embedding."""
     try:
+
         with open(path, "rb") as f:
             data = base64.b64encode(f.read()).decode("utf-8")
         return f"data:image/png;base64,{data}"
@@ -57,21 +63,11 @@ def local_css():
         .status-done { border-color: #32CD32; background-color: #32CD3222;} .status-done .card-status { color: #32CD32; }
         .server-card { border-color: #8A2BE2; background-color: #8A2BE222; height: 100%; }
         server-card .card-status { color: #BE7CFF; }
-
-        /* >>> START OF NEW CSS FIX <<< */
-        /* Create a container for our SHAP plot */
-        .shap-container {
-            width: 100%;
-        }
-        /* Force the iframe inside our container to be full-width */
-        .shap-container > iframe {
-            width: 100% !important;
-            min-width: 100% !important;
-        }
+        .shap-container { width: 100%; }
+        .shap-container > iframe { width: 100% !important; min-width: 100% !important; }
     </style>
     """, unsafe_allow_html=True)
 
-ICON_DIR = "assets" 
 CLIENT_ICONS = {
     "idle": get_image_as_base64(os.path.join(ICON_DIR, "client.png")),
     "selected": get_image_as_base64(os.path.join(ICON_DIR, "selection.png")),
@@ -349,7 +345,7 @@ def display_final_proof(config, real_results):
     st.markdown("---")
     st.header("Model Proof: Testing on Unseen Data")
 
-    MODEL_SAVE_PATH = config['model_save_path']
+    MODEL_SAVE_PATH = os.path.join(BASE_DIR, config['model_save_path'])
     if not os.path.exists(MODEL_SAVE_PATH):
         st.error(f"Model file not found at `{MODEL_SAVE_PATH}`. Please run `python main.py --dataset {config['dataset_name']}` to train it first.")
         return
@@ -363,7 +359,8 @@ def display_final_proof(config, real_results):
         st.success("Successfully loaded the trained secure model!")
 
         if config['dataset_name'] == 'arrhythmia':
-            scaler_path = "arrhythmia_scaler.joblib"
+            # Use absolute path for the scaler
+            scaler_path = os.path.join(BASE_DIR, "arrhythmia_scaler.joblib")
             if not os.path.exists(scaler_path):
                 st.error(f"`{scaler_path}` not found. Please re-run `python main.py --dataset arrhythmia`.")
                 return
@@ -409,18 +406,19 @@ def display_final_proof(config, real_results):
         st.error(f"An error occurred while analyzing the model: {e}")
         traceback.print_exc()
 
-
 if __name__ == "__main__":
     local_css()
-    st.title("Secure Federated Learning: A Visual & Interactive Demonstration")
+    st.title("🔒 Secure Federated Learning: A Visual & Interactive Demonstration")
 
+    # --- Sidebar Setup ---
     dataset_name = st.sidebar.selectbox("Choose a Dataset:", ("arrhythmia", "mnist"))
     config = get_config(dataset_name)
     
     @st.cache_data
     def load_json_results(path):
-        if os.path.exists(path):
-            with open(path, 'r') as f: return json.load(f)
+        full_path = os.path.join(BASE_DIR, path)
+        if os.path.exists(full_path):
+            with open(full_path, 'r') as f: return json.load(f)
         return None
     
     real_results = load_json_results(f"training_results_{dataset_name}.json")
@@ -443,8 +441,7 @@ if __name__ == "__main__":
         """)
 
         st.subheader("1. The Problem with Centralized Training")
-
-        st.image("assets/diagram_centralized.png", 
+        st.image(os.path.join(ICON_DIR, "diagram_centralized.png"), 
                  caption="In traditional ML, all raw data from every user is collected on a single server for training.")
         st.markdown("""
         - **How it works:** All data from all sources (e.g., multiple hospitals) is gathered in one central location. A single, powerful model is then trained on this complete dataset.
@@ -452,8 +449,7 @@ if __name__ == "__main__":
         """)
 
         st.subheader("2. The Federated Learning (FL) Solution")
-
-        st.image("assets/diagram_federated.png", 
+        st.image(os.path.join(ICON_DIR, "diagram_federated.png"), 
                  caption="In Federated Learning, the model is sent to the data, and the raw data never leaves the local device.")
         st.markdown("""
         - **How it works:** Instead of bringing the data to the model, the model is sent to the data. A central server distributes a global model to multiple clients. Each client trains the model *locally* on its own private data and then sends only the updated model parameters (the "learnings") back to the server. The server averages these learnings to improve the global model.
@@ -461,17 +457,14 @@ if __name__ == "__main__":
         """)
 
         st.subheader("3. The Final Step: Secure Aggregation with Homomorphic Encryption")
-
-        st.image("assets/diagram_secure.png", 
+        st.image(os.path.join(ICON_DIR, "diagram_secure.png"), 
                  caption="With Homomorphic Encryption, even the model updates are encrypted, making them unreadable to the server.")
         st.markdown("""
         - **How it works:** While standard FL protects the raw data, the model updates themselves could potentially be reverse-engineered. To prevent this, we add a final layer of security: **Homomorphic Encryption**. Clients encrypt their model updates before sending them. The server can then perform the averaging computation directly on this encrypted data.
         - **The Guarantee:** The server aggregates all the learnings into a new global model **without ever decrypting them**. It sees only meaningless gibberish, providing the strongest possible privacy guarantee. This is what our simulation demonstrates.
         """)
 
-
     with tab_simulation:
-
         top_row = st.columns((1.5, 1.2, 1.5), gap="large")
         with top_row[0]: st.subheader("Time per Round (seconds)"); time_chart_placeholder = st.empty()
         with top_row[1]: 
@@ -503,7 +496,7 @@ if __name__ == "__main__":
             for i in range(config['num_clients']):
                 placeholders['clients'][i].markdown(draw_client_card(i, "idle"), unsafe_allow_html=True)
 
-        if st.sidebar.button("Begin Animation", type="primary", use_container_width=True):
+        if st.sidebar.button("Replay Animation", type="primary", use_container_width=True):
             if real_results:
                 st.session_state.simulation_finished = False
                 config['num_rounds'] = real_results['num_rounds']
