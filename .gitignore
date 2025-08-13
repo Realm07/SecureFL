@@ -16,9 +16,6 @@ dist/
 TenSEAL/
 
 # Generated data files - DO NOT TRACK THESE
-*.json
-*.pth
-*.joblib
 *.png  # Ignore plots, but not assets
 !src/assets/
 
