@@ -23,8 +23,8 @@ from utils import visualize_tabular_results, visualize_predictions, create_time_
 
 
 st.set_page_config(layout="wide", page_title="Secure Federated Learning Demo")
-speed = 0.5
 
+# Note: The global 'speed' variable is removed as it's now controlled by a slider.
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_DIR = os.path.join(BASE_DIR, "assets")
@@ -34,7 +34,6 @@ ICON_DIR = os.path.join(BASE_DIR, "assets")
 def get_image_as_base64(path):
     """Encodes a local image file into Base64 for HTML embedding."""
     try:
-
         with open(path, "rb") as f:
             data = base64.b64encode(f.read()).decode("utf-8")
         return f"data:image/png;base64,{data}"
@@ -84,7 +83,6 @@ SERVER_ICONS = {
 }
 
 def draw_client_card(client_id, status="idle"):
-    """Creates the HTML for a client card using custom image icons."""
     icon_src = CLIENT_ICONS.get(status, CLIENT_ICONS["idle"])
     return f"""<div class="card status-{status}">
         <div class="card-icon"><img src="{icon_src}" width="60"></div>
@@ -92,7 +90,6 @@ def draw_client_card(client_id, status="idle"):
         <div class="card-status">{status.upper()}</div></div>"""
 
 def draw_server_card(status="Idle"):
-    """Creates the HTML for the server card using custom image icons."""
     icon_src = SERVER_ICONS.get(status, SERVER_ICONS["Idle"])
     return f"""<div class="card server-card">
         <div class="card-icon"><img src="{icon_src}" width="70"></div>
@@ -100,14 +97,11 @@ def draw_server_card(status="Idle"):
         <div class="card-status">{status.upper()}</div></div>"""
 
 def st_shap(plot, height=None):
-    """
-    Displays a SHAP plot in a Streamlit app by combining the plot's HTML
-    with the SHAP JavaScript library.
-    """
     shap_html = f"<head>{shap.getjs()}</head><body>{plot.html()}</body>"
     st.components.v1.html(shap_html, height=height)
 
-def run_animation(config, placeholders, real_results):
+# --- MODIFICATION: Added 'speed' parameter ---
+def run_animation(config, placeholders, real_results, speed):
     server_ph = placeholders['server']
     acc_chart_ph = placeholders['accuracy_chart']
     time_chart_ph = placeholders['time_chart']
@@ -115,13 +109,29 @@ def run_animation(config, placeholders, real_results):
     status_bar_ph = placeholders['status_bar']
     sniffer_phs = placeholders['sniffers']
     sample_update = real_results.get('sample_plaintext_update', {"error": "Sample not found"})
+    
     sniffer_phs['plaintext'].empty()
     sniffer_phs['secure'].empty()
+    
     acc_df = pd.DataFrame({'Secure FL': [real_results['secure_accuracies'][0]], 'Plaintext FL': [real_results['plaintext_accuracies'][0]],})
     acc_df.index.name = "Round"
     acc_chart_ph.line_chart(acc_df)
     time_chart_ph.info("Waiting for Round 1 to complete...")
     num_rounds = real_results['num_rounds']
+
+    # --- MODIFICATION: Display sniffer info once at the start so it persists ---
+    pt_container = sniffer_phs['plaintext'].container()
+    pt_container.error("INSECURE: Plaintext Traffic")
+    pt_container.markdown("The server can directly **see the structure and values** of the model updates.")
+    with pt_container.expander("Click to view sample intercepted data"):
+        st.json(sample_update)
+    
+    sec_container = sniffer_phs['secure'].container()
+    sec_container.success("SECURE: Encrypted Traffic")
+    sec_container.markdown("The server only sees **unintelligible encrypted data**.")
+    with sec_container.expander("Click to view sample intercepted data"):
+        st.code("Ciphertext({0x4a7b...f8d9})\nCiphertext({0x1f9a...e6d5})", language="text")
+
     for round_num in range(num_rounds):
         server_ph.markdown(draw_server_card("Selecting"), unsafe_allow_html=True)
         time.sleep(speed)
@@ -138,19 +148,11 @@ def run_animation(config, placeholders, real_results):
             client_phs[client_idx].markdown(draw_client_card(client_idx, "encrypting"), unsafe_allow_html=True)
         time.sleep(speed)
         server_ph.markdown(draw_server_card("Aggregating"), unsafe_allow_html=True)
-        pt_container = sniffer_phs['plaintext'].container()
-        pt_container.error("🚨 **INSECURE: Plaintext Traffic**")
-        pt_container.markdown("The server can directly **see the structure and values** of the model updates.")
-        with pt_container.expander("Click to view sample intercepted data"):
-            st.json(sample_update)
-        sec_container = sniffer_phs['secure'].container()
-        sec_container.success("🛡️ **SECURE: Encrypted Traffic**")
-        sec_container.markdown("The server only sees **unintelligible encrypted data**.")
-        with sec_container.expander("Click to view sample intercepted data"):
-            st.code("Ciphertext({0x4a7b...f8d9})\nCiphertext({0x1f9a...e6d5})", language="text")
+        
         for client_idx in selected_indices:
             client_phs[client_idx].markdown(draw_client_card(client_idx, "done"), unsafe_allow_html=True)
         time.sleep(speed * 2)
+        
         current_round_index = round_num + 1
         acc_df_update = pd.DataFrame({'Secure FL': real_results['secure_accuracies'][:current_round_index+1], 'Plaintext FL': real_results['plaintext_accuracies'][:current_round_index+1],})
         acc_df_update.index.name = "Round"
@@ -159,24 +161,22 @@ def run_animation(config, placeholders, real_results):
         fig_time = create_time_comparison_chart(time_df_update)
         time_chart_ph.pyplot(fig_time, use_container_width=True)
         plt.close(fig_time)
-        sniffer_phs['plaintext'].empty()
-        sniffer_phs['secure'].empty()
+        
+        # --- MODIFICATION: The sniffer info is no longer cleared here ---
+        
         server_ph.markdown(draw_server_card("Idle"), unsafe_allow_html=True)
         for i in range(config['num_clients']):
             client_phs[i].markdown(draw_client_card(i, "idle"), unsafe_allow_html=True)
         time.sleep(speed)
+        
     server_ph.markdown(draw_server_card("Complete!"), unsafe_allow_html=True)
     status_bar_ph.success("Animated simulation complete! Scroll down for final results.")
     st.session_state.simulation_finished = True
 
 def display_final_charts(real_results, centralized_results, placeholders):
-    """Draws the final state of the charts, now including the centralized baseline."""
-
     num_rounds = real_results['num_rounds']
-    
     centralized_acc = centralized_results['accuracy_history']
     fl_rounds_axis = range(num_rounds + 1)
-    
     centralized_indices = np.linspace(0, len(centralized_acc) - 1, num=num_rounds + 1).astype(int)
     aligned_centralized_acc = [centralized_acc[i] for i in centralized_indices]
 
@@ -228,7 +228,9 @@ def display_final_summary(real_results, centralized_results):
             label="Plaintext FL Time",
             value=f"{total_time_plaintext:.2f} s"
         )
-        
+        # --- NEW: Informational note about overhead ---
+        st.info("Note: The encryption overhead appears large in this simulation because the underlying training tasks are very fast. In real-world scenarios with complex models, this overhead is proportionally much smaller.")
+
     with col2:
         st.markdown("##### Model Accuracy")
         accuracy_delta_fl = final_acc_secure - final_acc_plaintext
@@ -241,7 +243,9 @@ def display_final_summary(real_results, centralized_results):
         st.metric(
             label="Plaintext FL Accuracy",
             value=f"{final_acc_plaintext:.2f}%"
-        )     
+        )
+        # --- NEW: Informational note about accuracy variance ---
+        st.info("Note: Due to the random nature of model initialization and data shuffling, accuracy results may vary slightly each time the training script is run.")
 
     st.subheader("Benchmark: FL vs. Centralized Training")
     
@@ -303,9 +307,9 @@ def display_interactive_diagnosis(config, real_results, trained_model, scaler):
         st.markdown("---")
         st.subheader("Diagnosis Results")
         if prediction == 1:
-            st.error(f"### Diagnosis: Arrhythmia Detected (Confidence: {confidence.item():.1%})")
+            st.error(f"Diagnosis: Arrhythmia Detected (Confidence: {confidence.item():.1%})")
         else:
-            st.success(f"### Diagnosis: Normal Rhythm (Confidence: {confidence.item():.1%})")
+            st.success(f"Diagnosis: Normal Rhythm (Confidence: {confidence.item():.1%})")
 
         st.subheader("Why did the AI make this decision?")
         st.markdown("The chart below shows which features pushed the prediction towards 'Arrhythmia' (red) or 'Normal' (blue).")
@@ -316,17 +320,15 @@ def display_interactive_diagnosis(config, real_results, trained_model, scaler):
                 output = trained_model(tensor_data)
             return torch.softmax(output, dim=1)[:, 1].cpu().numpy()
         
-        trainset, _, _, _ = get_datasets(config)
+        get_datasets(config)
+        trainset = config['trainset']
         X_train_scaled = trainset.tensors[0].numpy()
         
         explainer = shap.KernelExplainer(predict_fn_positive_class, shap.sample(X_train_scaled, 50))
         shap_values = explainer.shap_values(patient_data_scaled)
         
         base_value = explainer.expected_value
-
         shap_values_for_instance = shap_values[0]
-
-        st.set_page_config(layout="wide")
 
         fig = shap.plots.force(
             base_value, 
@@ -351,7 +353,6 @@ def display_final_proof(config, real_results):
         return
 
     try:
-
         if config['dataset_name'] == 'arrhythmia':
             get_datasets(config)
             
@@ -379,7 +380,7 @@ def display_final_proof(config, real_results):
         
         elif config['dataset_name'] == 'mnist':
             get_datasets(config)
-
+            
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
             trained_model.eval()
@@ -404,7 +405,7 @@ def display_final_proof(config, real_results):
                             prediction = torch.argmax(output, dim=1).item()
                         st.write("What the model sees (28x28):")
                         st.image(img.resize((140, 140)), use_container_width=False)
-                        st.success(f"### Model Prediction: **{prediction}**")
+                        st.success(f"Model Prediction: **{prediction}**")
                     else:
                         st.warning("Please draw a digit first!")
 
@@ -436,6 +437,16 @@ if __name__ == "__main__":
     else:
         st.sidebar.warning(f"Results file not found. Please run:\n`python main.py --dataset {dataset_name}`")
 
+    # --- NEW: Speed slider ---
+    animation_speed = st.sidebar.slider(
+        "Animation Speed (seconds per step)", 
+        min_value=0.1, 
+        max_value=2.0, 
+        value=0.5, 
+        step=0.1,
+        help="Control how fast the animation plays."
+    )
+
     tab_simulation, tab_explainer = st.tabs(["Live Simulation", "How It Works"])
 
     with tab_explainer:
@@ -444,7 +455,6 @@ if __name__ == "__main__":
         This project demonstrates a privacy-preserving machine learning technique called **Secure Federated Learning**. 
         Below is a breakdown of the key concepts that make it possible to train models on sensitive data without ever exposing it.
         """)
-
         st.subheader("1. The Problem with Centralized Training")
         st.image(os.path.join(ICON_DIR, "diagram_centralized.png"), 
                  caption="In traditional ML, all raw data from every user is collected on a single server for training.")
@@ -452,7 +462,6 @@ if __name__ == "__main__":
         - **How it works:** All data from all sources (e.g., multiple hospitals) is gathered in one central location. A single, powerful model is then trained on this complete dataset.
         - **The Challenge:** This approach creates a massive privacy risk. It requires transferring sensitive raw data, making it vulnerable to interception and creating a single point of failure that is an attractive target for cyberattacks. In many fields like healthcare, this is prohibited by regulations like HIPAA and GDPR.
         """)
-
         st.subheader("2. The Federated Learning (FL) Solution")
         st.image(os.path.join(ICON_DIR, "diagram_federated.png"), 
                  caption="In Federated Learning, the model is sent to the data, and the raw data never leaves the local device.")
@@ -460,7 +469,6 @@ if __name__ == "__main__":
         - **How it works:** Instead of bringing the data to the model, the model is sent to the data. A central server distributes a global model to multiple clients. Each client trains the model *locally* on its own private data and then sends only the updated model parameters (the "learnings") back to the server. The server averages these learnings to improve the global model.
         - **The Advantage:** Raw data privacy is preserved because the data never leaves the client's control.
         """)
-
         st.subheader("3. The Final Step: Secure Aggregation with Homomorphic Encryption")
         st.image(os.path.join(ICON_DIR, "diagram_secure.png"), 
                  caption="With Homomorphic Encryption, even the model updates are encrypted, making them unreadable to the server.")
@@ -505,7 +513,8 @@ if __name__ == "__main__":
             if real_results:
                 st.session_state.simulation_finished = False
                 config['num_rounds'] = real_results['num_rounds']
-                run_animation(config, placeholders, real_results)
+                # --- MODIFICATION: Pass the speed from the slider to the function ---
+                run_animation(config, placeholders, real_results, speed=animation_speed)
                 st.rerun() 
             else:
                 st.sidebar.error("Cannot start animation. Please run the trainer first.")
@@ -515,6 +524,18 @@ if __name__ == "__main__":
                 placeholders['server'].markdown(draw_server_card("Complete!"), unsafe_allow_html=True)
                 for i in range(config['num_clients']):
                     placeholders['clients'][i].markdown(draw_client_card(i, "idle"), unsafe_allow_html=True)
+                
+                # --- MODIFICATION: Make sure the final sniffer info shows ---
+                sample_update = real_results.get('sample_plaintext_update', {})
+                pt_container = sniffer_pt_placeholder.container()
+                pt_container.error("INSECURE: Plaintext Traffic")
+                with pt_container.expander("View sample data"):
+                    st.json(sample_update)
+                sec_container = sniffer_sec_placeholder.container()
+                sec_container.success("SECURE: Encrypted Traffic")
+                with sec_container.expander("View sample data"):
+                    st.code("Ciphertext({0x4a7b...f8d9})", language="text")
+
                 display_final_charts(real_results, centralized_results, placeholders)
                 display_final_summary(real_results, centralized_results)
                 display_final_proof(config, real_results)
