@@ -293,8 +293,9 @@ def display_final_summary(real_results, centralized_results):
     )
 
 
-def display_interactive_diagnosis(config, real_results, trained_model, scaler):
+def display_interactive_diagnosis(config, real_results, trained_model, scaler, X_train_scaled):
     st.subheader("Interactive Diagnosis: Test the Arrhythmia Model")
+
     patient_samples = real_results.get("patient_samples")
     feature_names = real_results.get("feature_names")
 
@@ -338,22 +339,24 @@ def display_interactive_diagnosis(config, real_results, trained_model, scaler):
                 output = trained_model(tensor_data)
             return torch.softmax(output, dim=1)[:, 1].cpu().numpy()
         
-        get_datasets(config)
-        trainset = config['trainset']
-        X_train_scaled = trainset.tensors[0].numpy()
-        
+        # --- FIX: Use the X_train_scaled data passed directly into the function ---
         explainer = shap.KernelExplainer(predict_fn_positive_class, shap.sample(X_train_scaled, 50))
         shap_values = explainer.shap_values(patient_data_scaled)
         
         base_value = explainer.expected_value
         shap_values_for_instance = shap_values[0]
 
-        fig = shap.plots.force(base_value, shap_values_for_instance, np.array(patient_data), feature_names=feature_names, matplotlib=False)
+        fig = shap.plots.force(
+            base_value, 
+            shap_values_for_instance, 
+            np.array(patient_data), 
+            feature_names=feature_names, 
+            matplotlib=False
+        )
         
         st.markdown('<div class="shap-container">', unsafe_allow_html=True)
         st_shap(fig)
         st.markdown('</div>', unsafe_allow_html=True)
-
 
 def display_final_proof(config, real_results):
     st.markdown("---")
@@ -366,17 +369,32 @@ def display_final_proof(config, real_results):
 
     try:
         if config['dataset_name'] == 'arrhythmia':
-            get_datasets(config)
+            # --- START OF DEFINITIVE FIX ---
+            # 1. Call get_datasets and explicitly capture the returned `trainset`.
+            #    We no longer rely on the function modifying the `config` dictionary.
+            #    The underscores `_` are used for return values we don't need here.
+            trainset, _, _, _ = get_datasets(config)
+            
+            # 2. Now, create X_train_scaled from the guaranteed `trainset` variable.
+            X_train_scaled = trainset.tensors[0].numpy()
+            # --- END OF DEFINITIVE FIX ---
+
+            # The rest of the code is now safe because it uses the correctly prepared data.
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
             trained_model.eval()
             st.success("Successfully loaded the trained secure model!")
+            
             scaler_path = os.path.join(BASE_DIR, "arrhythmia_scaler.joblib")
             if not os.path.exists(scaler_path) or "patient_samples" not in real_results:
                 st.error("Required arrhythmia files not found. Please re-run the main training script.")
                 return
+            
             scaler = joblib.load(scaler_path)
-            display_interactive_diagnosis(config, real_results, trained_model, scaler)
+            
+            # Pass the explicitly created X_train_scaled to the diagnosis function.
+            display_interactive_diagnosis(config, real_results, trained_model, scaler, X_train_scaled)
+            
             st.subheader("Overall Model Performance")
             fig, report_dict = visualize_tabular_results(trained_model, config)
             analysis_cols = st.columns(2)
@@ -384,6 +402,7 @@ def display_final_proof(config, real_results):
             with analysis_cols[1]: st.text("Classification Report:"); st.json(report_dict)
         
         elif config['dataset_name'] == 'mnist':
+            # This block was already robust, but the arrhythmia fix is the key.
             get_datasets(config)
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
@@ -410,6 +429,7 @@ def display_final_proof(config, real_results):
                         st.success(f"### Model Prediction: **{prediction}**")
                     else:
                         st.warning("Please draw a digit first!")
+
     except Exception as e:
         st.error(f"An error occurred while analyzing the model: {e}")
         traceback.print_exc()
