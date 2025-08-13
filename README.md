@@ -1,162 +1,160 @@
-# Secure Federated Learning
+# Secure Federated Learning using Homomorphic Encryption
 
-This repository contains the source code for a proof-of-concept application demonstrating Secure Federated Learning (SFL). The application provides a visual simulation and interactive analysis of a federated learning system that uses Homomorphic Encryption (HE) to ensure client privacy during model training.
+![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+<a href="https://securefl.streamlit.app/" target="_blank"><img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" alt="Streamlit App"></a>
 
-The primary objective of this project is to illustrate the functional viability and performance characteristics of SFL compared to traditional plaintext federated learning and centralized training methodologies.
+This project is a proof-of-concept demonstrating how to train a machine learning model on distributed data using **Federated Learning (FL)**, with an added layer of privacy through **Homomorphic Encryption (HE)**.
+
+The core principle is that raw data never leaves the client's local environment. Furthermore, model updates are encrypted before being sent to a central server. The server can then aggregate these encrypted updates without ever decrypting them, providing a strong mathematical guarantee of privacy.
+
+The interactive dashboard simulates this process and compares its performance against less secure training methodologies.
+
+### Live Interactive Demo
+
+A live version of the dashboard is hosted on Streamlit Community Cloud.
+
+**[>> Launch the Interactive Demo <<](https://securefl.streamlit.app/)**
+
+![Dashboard Demo](src/assets/demo.png)
+
+---
 
 ## Table of Contents
 
-- [Conceptual Background](#conceptual-background)
-- [Technical Architecture](#technical-architecture)
+- [About The Project](#about-the-project)
 - [Key Features](#key-features)
 - [Technology Stack](#technology-stack)
 - [Repository Structure](#repository-structure)
-- [Setup and Execution](#setup-and-execution)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Installation & Setup](#installation--setup)
+- [Usage](#usage)
+- [Author](#author)
 - [License](#license)
 
-## Background
+## About The Project
 
-### Centralized Training Limitations
+Traditional machine learning requires centralizing data, which is often not feasible for sensitive information due to regulatory and privacy concerns (e.g., GDPR, HIPAA). This project demonstrates a solution using two key technologies:
 
-Traditional machine learning requires the aggregation of training data on a single, central server. This approach is untenable in domains handling sensitive information, such as healthcare, due to significant legal and ethical constraints.
+1.  **Federated Learning (FL):** A decentralized training approach where the model is sent to the data holders (clients). Clients train the model locally, so their raw data is never exposed. They only return the learned model parameters (weights).
 
--   **Regulatory Compliance:** Data privacy regulations like the **Health Insurance Portability and Accountability Act (HIPAA)** in the United States and the **General Data Protection Regulation (GDPR)** in Europe impose strict rules on the storage, processing, and transfer of Personally Identifiable Information (PII) and Protected Health Information (PHI). Centralizing patient data from multiple institutions often violates these statutes.
--   **Data Sovereignty:** Data may be subject to the laws of the country in which it was collected, prohibiting it from leaving that jurisdiction.
--   **Competitive and Ethical Concerns:** Institutions are often unwilling to share proprietary data, as it represents a competitive asset and a potential liability if breached.
-
-### Federated Learning (FL)
-
-Federated Learning is a decentralized machine learning paradigm that enables model training on distributed data without requiring the data to be moved from its source. The process is iterative:
-
-1.  A central server initializes a global model.
-2.  The model is distributed to a subset of clients.
-3.  Each client trains the model locally on its private data partition.
-4.  Clients send their updated model parameters (e.g., weights and biases) back to the server.
-5.  The server aggregates these updates (e.g., via federated averaging) to produce an improved global model for the next round.
-
-This methodology ensures that raw training data never leaves the client's local environment.
-
-### Homomorphic Encryption (HE)
-
-While standard FL protects the raw data, the model updates themselves can potentially leak information about the underlying training data. Homomorphic Encryption is a cryptographic method that mitigates this risk.
-
--   **Definition:** HE allows for specific mathematical operations to be performed directly on encrypted data (ciphertexts). When the result of these computations is decrypted, it is identical to the result of performing the same operations on the original, unencrypted data (plaintexts).
--   **Application:** In this project, clients encrypt their model updates before sending them to the server. The server performs the federated averaging computation on these encrypted updates. Because the server only ever handles ciphertexts, it learns nothing about the individual contributions from any client, providing a strong guarantee of privacy for the model parameters.
-
-## Technical Architecture
-
-The system is composed of three primary components simulated within the application:
-
-1.  **Clients:** Entities (e.g., hospitals) that hold private data. They receive the global model, train it locally, encrypt the resulting model weight updates using HE, and send the ciphertexts to the server.
-2.  **Central Server:** An aggregation server that orchestrates the FL process. It selects clients, distributes the global model, and receives encrypted updates. It performs federated averaging on the ciphertexts and then decrypts the final averaged result to produce the next iteration of the global model.
-3.  **Simulation & Analysis Dashboard:** A Streamlit-based web interface that provides a real-time animation of the FL process and presents a detailed analysis of the results, including comparisons of accuracy, performance, and privacy.
+2.  **Homomorphic Encryption (HE):** A cryptographic method that allows computations to be performed directly on encrypted data. In this project, clients encrypt their model weights before sending them to the server. The server can then average these encrypted weights without having the decryption key. This prevents the server from inferring information from any single client's update, providing a robust privacy layer on top of FL.
 
 ## Key Features
 
--   **Real-Time Simulation:** A step-by-step visual animation of the federated learning rounds, including client selection, training, encryption, and aggregation states.
--   **Privacy Visualization:** A "Privacy Sniffer" component that explicitly displays the data received by the server during aggregation, contrasting human-readable plaintext updates with unintelligible encrypted ciphertexts.
--   **Interactive Model Testing:** The final, securely trained models can be tested interactively:
-    -   **MNIST:** A drawable canvas for real-time digit recognition.
-    -   **Arrhythmia:** A diagnostic tool for classifying sample patient data, which includes model-explainability (XAI) outputs generated via the SHAP library.
--   **Performance Benchmarking:** The dashboard provides a comprehensive comparison of three training methodologies:
-    1.  **Secure Federated Learning (SFL)**
-    2.  **Plaintext Federated Learning** (insecure baseline)
-    3.  **Centralized Training** (non-private theoretical performance upper-bound)
+-   **Visual Simulation of FL Process:** Animates the client selection, model distribution, local training, encryption, and secure aggregation steps.
+-   **Plaintext vs. Ciphertext Comparison:** A "Privacy Sniffer" UI component that shows the data received by the server, contrasting readable plaintext updates with their unintelligible encrypted counterparts.
+-   **Interactive Model Testing:** Allows users to test the final, securely-trained models on new data:
+    -   **MNIST:** A drawable canvas for handwritten digit recognition.
+    -   **Arrhythmia:** A diagnostic tool to classify patient data, complete with model explainability (XAI) charts from SHAP.
+-   **Performance Benchmarking:** Provides charts comparing three training methods:
+    1.  Secure Federated Learning (with HE)
+    2.  Plaintext Federated Learning (insecure baseline)
+    3.  Centralized Training (non-private performance benchmark)
 
 ## Technology Stack
 
--   **Backend & ML Framework:** Python 3.11+, PyTorch
--   **Web Framework / Dashboard:** Streamlit
--   **Homomorphic Encryption:** [Microsoft SEAL](https://github.com/microsoft/SEAL) (via the [TenSEAL](https://github.com/OpenMined/TenSEAL) Python wrapper)
+-   **Backend & ML Framework:** Python, PyTorch
+-   **Dashboard:** Streamlit
+-   **Homomorphic Encryption:** Microsoft SEAL (via the TenSEAL wrapper)
 -   **Model Explainability:** SHAP
--   **Data Manipulation & Numerics:** Pandas, NumPy, scikit-learn
--   **Core Dependencies:** `joblib`, `matplotlib`, `seaborn`, `Pillow`, `st-shap`, `streamlit-drawable-canvas`
+-   **Data & Numerics:** Pandas, NumPy, scikit-learn
 
 ## Repository Structure
 
 ```
 .
 ├── .gitignore
+├── LICENSE.txt
 ├── README.md
-├── requirements.txt
+├── packages.txt          # System-level dependencies for deployment
+├── requirements.txt      # Python package requirements
 └── src/
-    ├── assets/             # Static image assets for the UI
-    ├── data/               # Default directory for datasets
-    ├── centralized_trainer.py # Script to train the centralized baseline model
-    ├── config.py           # Hyperparameter and model configurations
-    ├── dashboard.py        # Main Streamlit application file
-    ├── data_loader.py      # Data loading and partitioning logic
-    ├── fl_logic.py         # Core federated training and aggregation functions
-    ├── he_tenseal.py       # Homomorphic encryption/decryption logic using TenSEAL
-    ├── main.py             # Main script to run FL simulations and generate results
-    ├── models.py           # PyTorch model definitions
-    ├── simulation.py       # High-level simulation orchestration
-    └── utils.py            # Utility functions for evaluation and plotting
+    ├── assets/           # Static image assets for the UI
+    ├── data/             # Default directory for datasets
+    ├── centralized_trainer.py
+    ├── config.py
+    ├── dashboard.py      # Main Streamlit application file
+    ├── data_loader.py
+    ├── fl_logic.py
+    ├── he_tenseal.py
+    ├── main.py           # Main script to run simulations
+    ├── models.py
+    └── utils.py
 ```
 
-## Setup and Execution
+## Getting Started
+
+Follow these steps to set up and run the project locally.
 
 ### Prerequisites
 
--   Python (version 3.10+ recommended)
--   `pip` and `venv` for package management
+-   Python (version 3.11+ recommended)
+-   `pip` and `venv`
 
-### 1. Clone the Repository
+### Installation & Setup
 
-```bash
-git clone https://github.com/Realm07/SecureFL.git
-cd SecureFL
-```
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/Realm07/SecureFL.git
+    cd SecureFL
+    ```
 
-### 2. Set Up a Virtual Environment
+2.  **Create and Activate a Virtual Environment**
+    ```bash
+    # Create the environment
+    python3 -m venv venv
 
-It is highly recommended to use a virtual environment to manage dependencies.
+    # Activate it (Linux/macOS)
+    source venv/bin/activate
 
-```bash
-python -m venv venv
-source venv/bin/activate
-# On Windows, use: venv\Scripts\activate
-```
+    # Activate it (Windows)
+    # venv\Scripts\activate
+    ```
 
-### 3. Install Dependencies
+3.  **Install Dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-Install all required Python packages from the `requirements.txt` file.
+4.  **Download the Arrhythmia Dataset**
+    -   Download the dataset from the [UCI Machine Learning Repository](https://archive.ics.uci.edu/dataset/5/arrhythmia).
+    -   Ensure the file is named `arrhythmia.csv`.
+    -   Place this file inside the `src/data/` directory. The MNIST dataset will be downloaded automatically by PyTorch.
 
-```bash
-pip install -r requirements.txt
-```
+## Usage
 
-### 4. Download Dataset
+Before running the dashboard, you must first generate the result files that it depends on.
 
-The Arrhythmia dataset must be manually downloaded and placed in the appropriate directory.
+1.  **Generate Benchmark and Model Files**
+    
+    > **Note:** This step is computationally intensive and may take several minutes to complete.
 
--   Download the dataset from a source such as the [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/arrhythmia) or [Kaggle](https://www.kaggle.com/datasets/shrutimechlearn/heart-disease-dataset-from-uci).
--   Ensure the file is named `arrhythmia.csv`.
--   Place the `arrhythmia.csv` file inside the `src/data/` directory.
+    Run the following commands from the project's root directory:
+    ```bash
+    # Generate benchmarks for the centralized model
+    python3 src/centralized_trainer.py --dataset mnist
+    python3 src/centralized_trainer.py --dataset arrhythmia
 
-### 5. Generate Benchmark and Model Files
+    # Generate benchmarks and models for Federated Learning
+    python3 src/main.py --dataset mnist
+    python3 src/main.py --dataset arrhythmia
+    ```
 
-Before running the dashboard, you must first run the training scripts to generate the necessary result files (`.json`), model weights (`.pth`), and the data scaler (`.joblib`). Execute the following commands from the root directory:
+2.  **Launch the Dashboard**
+    Once all result files have been generated, launch the Streamlit application:
+    ```bash
+    streamlit run src/dashboard.py
+    ```
+    The application will be accessible in your web browser at `http://localhost:8501`.
 
-```bash
-# Generate centralized model benchmarks
-python src/centralized_trainer.py --dataset mnist
-python src/centralized_trainer.py --dataset arrhythmia
+## Author
 
-# Generate federated learning benchmarks and models
-python src/main.py --dataset mnist
-python src/main.py --dataset arrhythmia
-```
+This project was developed by **Realm07**.
 
-### 6. Launch the Dashboard
-
-Once all result files have been generated, launch the Streamlit application.
-
-```bash
-streamlit run src/dashboard.py
-```
-
-The application will be accessible at `http://localhost:8501`.
+-   **GitHub Profile:** [https://github.com/Realm07](https://github.com/Realm07)
+-   **Project Repository:** [https://github.com/Realm07/SecureFL](https://github.com/Realm07/SecureFL)
 
 ## License
 
