@@ -71,7 +71,7 @@ def local_css():
     </style>
     """, unsafe_allow_html=True)
 
-ICON_DIR = "assets"
+ICON_DIR = "assets" 
 CLIENT_ICONS = {
     "idle": get_image_as_base64(os.path.join(ICON_DIR, "client.png")),
     "selected": get_image_as_base64(os.path.join(ICON_DIR, "selection.png")),
@@ -409,11 +409,11 @@ def display_final_proof(config, real_results):
         st.error(f"An error occurred while analyzing the model: {e}")
         traceback.print_exc()
 
-        
 
 if __name__ == "__main__":
     local_css()
-    st.title("Real-Time Simulation of Secure Federated Learning")
+    st.title("Secure Federated Learning: A Visual & Interactive Demonstration")
+
     dataset_name = st.sidebar.selectbox("Choose a Dataset:", ("arrhythmia", "mnist"))
     config = get_config(dataset_name)
     
@@ -432,54 +432,93 @@ if __name__ == "__main__":
         st.sidebar.json({"Dataset": real_results.get('dataset', 'N/A'), "Model": config.get('model_name', 'N/A'), "Rounds": real_results.get('num_rounds', 'N/A')})
     else:
         st.sidebar.warning(f"Results file not found. Please run:\n`python main.py --dataset {dataset_name}`")
-    
-    top_row = st.columns((1.5, 1.2, 1.5), gap="large")
-    with top_row[0]: st.subheader("Time per Round (seconds)"); time_chart_placeholder = st.empty()
-    with top_row[1]: 
-        server_placeholder = st.empty()
-        st.subheader("What the Server Receives")
-        sniffer_cols = st.columns(2)
-        sniffer_pt_placeholder = sniffer_cols[0].empty()
-        sniffer_sec_placeholder = sniffer_cols[1].empty()
-    with top_row[2]: st.subheader("Live Accuracy Comparison"); accuracy_chart_placeholder = st.empty()
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.subheader("Participating Hospitals / Clients")
-    client_cols = st.columns(config['num_clients'])
-    client_placeholders = {i: col.empty() for i, col in enumerate(client_cols)}
-    placeholders = {
-        'server': server_placeholder, 
-        'accuracy_chart': accuracy_chart_placeholder,
-        'time_chart': time_chart_placeholder,
-        'clients': client_placeholders,
-        'status_bar': st.empty(),
-        'sniffers': {
-            'plaintext': sniffer_pt_placeholder,
-            'secure': sniffer_sec_placeholder
+    tab_simulation, tab_explainer = st.tabs(["Live Simulation", "How It Works"])
+
+    with tab_explainer:
+        st.header("Understanding the Core Concepts")
+        st.markdown("""
+        This project demonstrates a privacy-preserving machine learning technique called **Secure Federated Learning**. 
+        Below is a breakdown of the key concepts that make it possible to train models on sensitive data without ever exposing it.
+        """)
+
+        st.subheader("1. The Problem with Centralized Training")
+
+        st.image("assets/diagram_centralized.png", 
+                 caption="In traditional ML, all raw data from every user is collected on a single server for training.")
+        st.markdown("""
+        - **How it works:** All data from all sources (e.g., multiple hospitals) is gathered in one central location. A single, powerful model is then trained on this complete dataset.
+        - **The Challenge:** This approach creates a massive privacy risk. It requires transferring sensitive raw data, making it vulnerable to interception and creating a single point of failure that is an attractive target for cyberattacks. In many fields like healthcare, this is prohibited by regulations like HIPAA and GDPR.
+        """)
+
+        st.subheader("2. The Federated Learning (FL) Solution")
+
+        st.image("assets/diagram_federated.png", 
+                 caption="In Federated Learning, the model is sent to the data, and the raw data never leaves the local device.")
+        st.markdown("""
+        - **How it works:** Instead of bringing the data to the model, the model is sent to the data. A central server distributes a global model to multiple clients. Each client trains the model *locally* on its own private data and then sends only the updated model parameters (the "learnings") back to the server. The server averages these learnings to improve the global model.
+        - **The Advantage:** Raw data privacy is preserved because the data never leaves the client's control.
+        """)
+
+        st.subheader("3. The Final Step: Secure Aggregation with Homomorphic Encryption")
+
+        st.image("assets/diagram_secure.png", 
+                 caption="With Homomorphic Encryption, even the model updates are encrypted, making them unreadable to the server.")
+        st.markdown("""
+        - **How it works:** While standard FL protects the raw data, the model updates themselves could potentially be reverse-engineered. To prevent this, we add a final layer of security: **Homomorphic Encryption**. Clients encrypt their model updates before sending them. The server can then perform the averaging computation directly on this encrypted data.
+        - **The Guarantee:** The server aggregates all the learnings into a new global model **without ever decrypting them**. It sees only meaningless gibberish, providing the strongest possible privacy guarantee. This is what our simulation demonstrates.
+        """)
+
+
+    with tab_simulation:
+
+        top_row = st.columns((1.5, 1.2, 1.5), gap="large")
+        with top_row[0]: st.subheader("Time per Round (seconds)"); time_chart_placeholder = st.empty()
+        with top_row[1]: 
+            server_placeholder = st.empty()
+            st.subheader("What the Server Receives")
+            sniffer_cols = st.columns(2)
+            sniffer_pt_placeholder = sniffer_cols[0].empty()
+            sniffer_sec_placeholder = sniffer_cols[1].empty()
+        with top_row[2]: st.subheader("Live Accuracy Comparison"); accuracy_chart_placeholder = st.empty()
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Participating Hospitals / Clients")
+        client_cols = st.columns(config['num_clients'])
+        client_placeholders = {i: col.empty() for i, col in enumerate(client_cols)}
+        placeholders = {
+            'server': server_placeholder, 
+            'accuracy_chart': accuracy_chart_placeholder,
+            'time_chart': time_chart_placeholder,
+            'clients': client_placeholders,
+            'status_bar': st.empty(),
+            'sniffers': {
+                'plaintext': sniffer_pt_placeholder,
+                'secure': sniffer_sec_placeholder
+            }
         }
-    }
 
-    if not st.session_state.get('simulation_finished', False):
-        server_placeholder.markdown(draw_server_card("Idle"), unsafe_allow_html=True)
-        for i in range(config['num_clients']):
-            placeholders['clients'][i].markdown(draw_client_card(i, "idle"), unsafe_allow_html=True)
-
-    if st.sidebar.button("Replay Animation", type="primary", use_container_width=True):
-        if real_results:
-            st.session_state.simulation_finished = False
-            config['num_rounds'] = real_results['num_rounds']
-            run_animation(config, placeholders, real_results)
-            st.rerun() 
-        else:
-            st.sidebar.error("Cannot start animation. Please run the trainer first.")
-
-    if st.session_state.get('simulation_finished', False):
-        if real_results:
-            placeholders['server'].markdown(draw_server_card("Complete!"), unsafe_allow_html=True)
+        if not st.session_state.get('simulation_finished', False):
+            server_placeholder.markdown(draw_server_card("Idle"), unsafe_allow_html=True)
             for i in range(config['num_clients']):
                 placeholders['clients'][i].markdown(draw_client_card(i, "idle"), unsafe_allow_html=True)
-            display_final_charts(real_results, centralized_results, placeholders)
-            display_final_summary(real_results, centralized_results)
-            display_final_proof(config, real_results)
-        else:
-            st.error("Cannot display final results. Please ensure all results files are generated.")
+
+        if st.sidebar.button("Begin Animation", type="primary", use_container_width=True):
+            if real_results:
+                st.session_state.simulation_finished = False
+                config['num_rounds'] = real_results['num_rounds']
+                run_animation(config, placeholders, real_results)
+                st.rerun() 
+            else:
+                st.sidebar.error("Cannot start animation. Please run the trainer first.")
+
+        if st.session_state.get('simulation_finished', False):
+            if real_results and centralized_results:
+                placeholders['server'].markdown(draw_server_card("Complete!"), unsafe_allow_html=True)
+                for i in range(config['num_clients']):
+                    placeholders['clients'][i].markdown(draw_client_card(i, "idle"), unsafe_allow_html=True)
+                display_final_charts(real_results, centralized_results, placeholders)
+                display_final_summary(real_results, centralized_results)
+                display_final_proof(config, real_results)
+            else:
+                st.error("Cannot display final results. Please ensure all results files are generated.")
