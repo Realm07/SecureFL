@@ -351,15 +351,15 @@ def display_final_proof(config, real_results):
         return
 
     try:
-        get_datasets(config)
-        
-        trained_model = get_model(config)
-        trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
-        trained_model.eval()
-        st.success("Successfully loaded the trained secure model!")
 
         if config['dataset_name'] == 'arrhythmia':
-            # Use absolute path for the scaler
+            get_datasets(config)
+            
+            trained_model = get_model(config)
+            trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
+            trained_model.eval()
+            st.success("Successfully loaded the trained secure model!")
+            
             scaler_path = os.path.join(BASE_DIR, "arrhythmia_scaler.joblib")
             if not os.path.exists(scaler_path):
                 st.error(f"`{scaler_path}` not found. Please re-run `python main.py --dataset arrhythmia`.")
@@ -369,7 +369,6 @@ def display_final_proof(config, real_results):
                 return
 
             scaler = joblib.load(scaler_path)
-            
             display_interactive_diagnosis(config, real_results, trained_model, scaler)
             
             st.subheader("Overall Model Performance")
@@ -379,6 +378,13 @@ def display_final_proof(config, real_results):
             with analysis_cols[1]: st.text("Classification Report:"); st.json(report_dict)
         
         elif config['dataset_name'] == 'mnist':
+            get_datasets(config)
+
+            trained_model = get_model(config)
+            trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
+            trained_model.eval()
+            st.success("Successfully loaded the trained secure model!")
+
             st.info("Below are some predictions from the final secure model on the test set.")
             visualize_predictions(trained_model, config)
             st.subheader("Test the Model Yourself!")
@@ -408,9 +414,8 @@ def display_final_proof(config, real_results):
 
 if __name__ == "__main__":
     local_css()
-    st.title("🔒 Secure Federated Learning: A Visual & Interactive Demonstration")
+    st.title("Secure Federated Learning: A Visual & Interactive Demonstration")
 
-    # --- Sidebar Setup ---
     dataset_name = st.sidebar.selectbox("Choose a Dataset:", ("arrhythmia", "mnist"))
     config = get_config(dataset_name)
     
