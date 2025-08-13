@@ -134,12 +134,12 @@ def run_animation(config, placeholders, real_results, speed):
     sec_container = sniffer_phs['secure'].container()
 
     pt_container.error("🚨 INSECURE: Plaintext Traffic")
-    pt_container.markdown("The server can directly see the structure and values of the model updates.")
+    pt_container.markdown("The server can directly see the structure and values of the model updates. Data is clearly visible and vulnerable.")
     with pt_container.expander("Click to view sample intercepted data"):
         st.json(sample_update)
 
     sec_container.success("🛡️ SECURE: Encrypted Traffic")
-    sec_container.markdown("The server only sees unintelligible encrypted data.")
+    sec_container.markdown("The server only sees unintelligible encrypted data. The data is NEVER decrypted on the server either.")
     with sec_container.expander("Click to view sample intercepted data"):
         st.code("Ciphertext({0x4a7b...f8d9})\nCiphertext({0x1f9a...e6d5})", language="text")
 
@@ -469,7 +469,7 @@ if __name__ == "__main__":
         <div class="explainer-text">
         <ul>
         <li><b>How it works:</b> All data from all sources (e.g., multiple hospitals) is gathered in one central location. A single, powerful model is then trained on this complete dataset.</li>
-        <li><b>The Challenge:</b> This approach creates a massive privacy risk. It requires transferring sensitive raw data, making it vulnerable to interception and creating a single point of failure that is an attractive target for cyberattacks. In many fields like healthcare, this is prohibited by regulations like HIPAA and GDPR.</li>
+        <li><b>The Challenge:</b> This approach creates a massive privacy risk. It requires transferring sensitive raw data, making it vulnerable to interception and creating a single point of failure that is an attractive target for cyberattacks. In many fields like healthcare, this is prohibited by regulations like <b>HIPAA and GDPR</b>.</li>
         </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -485,12 +485,12 @@ if __name__ == "__main__":
         </div>
         """, unsafe_allow_html=True)
         
-        st.subheader("3. The 'Holy Grail': Homomorphic Encryption (HE)")
+        st.subheader("3. The Innovation: Homomorphic Encryption (HE)")
         st.image(os.path.join(ICON_DIR, "diagram_secure.png"), caption="With Homomorphic Encryption, even the model updates are encrypted, making them unreadable to the server.")
         st.markdown("""
         <div class="explainer-text">
         <p>
-        Homomorphic Encryption is a revolutionary form of encryption, often described as the "holy grail" of cryptography. Its breakthrough property is that it allows one to perform computations directly on encrypted data without ever decrypting it.
+        Homomorphic Encryption is a revolutionary form of encryption. Its breakthrough property is that it allows one to perform computations directly on encrypted data without ever decrypting it.
         </p>
         <ul>
             <li><b>The Challenge of AI on Encrypted Data:</b> Normally, to train a model, you need the raw numbers. This has meant that data must be decrypted at some point, creating a vulnerability. HE solves this.</li>
