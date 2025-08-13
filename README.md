@@ -4,7 +4,7 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 <a href="https://securefl.streamlit.app/" target="_blank"><img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" alt="Streamlit App"></a>
 
-This project is a proof-of-concept demonstrating how to train a machine learning model on distributed data using **Federated Learning (FL)**, with an added layer of privacy through **Homomorphic Encryption (HE)**.
+This project is a demonstration on training a machine learning model on distributed data using **Federated Learning (FL)**, with an added layer of privacy through **Homomorphic Encryption (HE)**.
 
 The core principle is that raw data never leaves the client's local environment. Furthermore, model updates are encrypted before being sent to a central server. The server can then aggregate these encrypted updates without ever decrypting them, providing a strong mathematical guarantee of privacy.
 
@@ -14,7 +14,7 @@ The interactive dashboard simulates this process and compares its performance ag
 
 A live version of the dashboard is hosted on Streamlit Community Cloud.
 
-**[>> Launch the Interactive Demo <<](https://securefl.streamlit.app/)**
+**[Interactive Demo](https://securefl.streamlit.app/)**
 
 ![Dashboard Demo](src/assets/demo.png)
 
