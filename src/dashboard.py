@@ -339,7 +339,6 @@ def display_interactive_diagnosis(config, real_results, trained_model, scaler, X
                 output = trained_model(tensor_data)
             return torch.softmax(output, dim=1)[:, 1].cpu().numpy()
         
-        # --- FIX: Use the X_train_scaled data passed directly into the function ---
         explainer = shap.KernelExplainer(predict_fn_positive_class, shap.sample(X_train_scaled, 50))
         shap_values = explainer.shap_values(patient_data_scaled)
         
@@ -369,17 +368,15 @@ def display_final_proof(config, real_results):
 
     try:
         if config['dataset_name'] == 'arrhythmia':
-            # --- START OF DEFINITIVE FIX ---
-            # 1. Call get_datasets and explicitly capture the returned `trainset`.
-            #    We no longer rely on the function modifying the `config` dictionary.
-            #    The underscores `_` are used for return values we don't need here.
+            # --- THE DEFINITIVE FIX ---
+            # 1. Call get_datasets and explicitly capture the `trainset` it returns.
+            #    We no longer care if the 'config' dictionary is modified.
             trainset, _, _, _ = get_datasets(config)
             
-            # 2. Now, create X_train_scaled from the guaranteed `trainset` variable.
+            # 2. Prepare the data needed by the diagnosis function FROM the returned trainset.
             X_train_scaled = trainset.tensors[0].numpy()
-            # --- END OF DEFINITIVE FIX ---
-
-            # The rest of the code is now safe because it uses the correctly prepared data.
+            
+            # The rest of the function now works with guaranteed data.
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
             trained_model.eval()
@@ -392,7 +389,7 @@ def display_final_proof(config, real_results):
             
             scaler = joblib.load(scaler_path)
             
-            # Pass the explicitly created X_train_scaled to the diagnosis function.
+            # 3. Pass the explicitly prepared `X_train_scaled` data as an argument.
             display_interactive_diagnosis(config, real_results, trained_model, scaler, X_train_scaled)
             
             st.subheader("Overall Model Performance")
@@ -402,7 +399,7 @@ def display_final_proof(config, real_results):
             with analysis_cols[1]: st.text("Classification Report:"); st.json(report_dict)
         
         elif config['dataset_name'] == 'mnist':
-            # This block was already robust, but the arrhythmia fix is the key.
+            # This block was already robust and needs no changes.
             get_datasets(config)
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
