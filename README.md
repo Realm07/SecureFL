@@ -1,4 +1,4 @@
-# Secure Federated Learning Demonstration
+# Secure Federated Learning
 
 This repository contains the source code for a proof-of-concept application demonstrating Secure Federated Learning (SFL). The application provides a visual simulation and interactive analysis of a federated learning system that uses Homomorphic Encryption (HE) to ensure client privacy during model training.
 
