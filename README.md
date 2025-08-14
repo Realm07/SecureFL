@@ -1,5 +1,5 @@
 # Secure Federated Learning using Homomorphic Encryption
-
+Training a Neural Network on Encrypted Data with Homomorphic Encryption and Federated Learning
 ![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 <a href="https://securefl.streamlit.app/" target="_blank"><img src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg" alt="Streamlit App"></a>
