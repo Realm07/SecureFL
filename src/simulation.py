@@ -1,3 +1,4 @@
+import copy
 import torch
 from torch.utils.data import DataLoader
 import random
@@ -69,10 +70,14 @@ def run_simulation_plaintext(global_model, trainset, test_loader, config):
     print(f"\nTotal Plaintext Simulation Time: {time.time() - total_sim_start_time:.2f}s")
     return accuracies, losses, times, sample_plaintext_update
 
-def run_simulation_secure(global_model, trainset, test_loader, config):
-    """Runs the entire FL simulation using TenSEAL for secure aggregation."""
+def run_simulation_secure(global_model, trainset, test_loader, config, privacy_profile):
+    """
+    Runs the entire FL simulation using TenSEAL for secure aggregation.
+    - privacy_profile: 'she', 'full_he', 'she_dp', 'full_he_dp'
+    """
+    profile_str = privacy_profile.upper().replace('_', ' + ')
     print("\n\n" + "="*50)
-    print("Starting SECURE Federated Learning Simulation (TenSEAL)")
+    print(f"Starting SECURE Federated Learning Simulation ({profile_str})")
     print("="*50)
 
     POLY_MOD_DEGREE = 8192
@@ -85,7 +90,7 @@ def run_simulation_secure(global_model, trainset, test_loader, config):
     except Exception as e:
         print(f"Error creating TenSEAL context: {e}")
         return None, None, None, None
-
+    encrypted_layers = config.get('encrypted_layers') if privacy_profile == "she" else None
     accuracies, losses = [], []
     times = []
     initial_acc, initial_loss = evaluate_global_model(global_model, test_loader, config['device'])
@@ -109,8 +114,9 @@ def run_simulation_secure(global_model, trainset, test_loader, config):
 
         encrypted_updates = [
             train_local_client_secure(
-                global_model, DataLoader(client_datasets[i], batch_size=config['batch_size'], shuffle=True), 
-                config, context, slot_count
+                global_model,
+                DataLoader(client_datasets[i], batch_size=config['batch_size'], shuffle=True),
+                config, context, slot_count, privacy_profile
             ) for i in selected_indices
         ]
         
@@ -129,4 +135,4 @@ def run_simulation_secure(global_model, trainset, test_loader, config):
         print(f"--- Round {round_num + 1} Perf --- Acc: {accuracy:.2f}%, Time: {round_duration:.2f}s ---")
 
     print(f"\nTotal Secure Simulation Time: {time.time() - total_sim_start_time:.2f}s")
-    return accuracies, losses, times, global_model
+    return accuracies, losses, times, copy.deepcopy(global_model)
