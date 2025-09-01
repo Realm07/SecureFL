@@ -12,3 +12,4 @@ joblib
 streamlit-drawable-canvas
 streamlit-shap
 Pillow
+opacus

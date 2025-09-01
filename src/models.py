@@ -21,33 +21,43 @@ class SmallerCNN(nn.Module):
         return x
 
 class ArrhythmiaMLP(nn.Module):
-    """A deeper and wider MLP for the tabular Arrhythmia dataset."""
+    """
+    A DP-compatible MLP for the Arrhythmia dataset.
+    Uses GroupNorm instead of BatchNorm.
+    """
     def __init__(self, num_features, num_classes):
         super(ArrhythmiaMLP, self).__init__()
         self.layer_1 = nn.Linear(num_features, 256)
+        # GroupNorm divides channels into groups. For a linear layer, channels = features.
+        # We need to choose a number of groups that divides the number of channels.
+        # 32 is a common choice and divides 256, 128, and 64.
+        self.groupnorm1 = nn.GroupNorm(32, 256)
+        
         self.layer_2 = nn.Linear(256, 128)
+        self.groupnorm2 = nn.GroupNorm(32, 128)
+        
         self.layer_3 = nn.Linear(128, 64)
+        self.groupnorm3 = nn.GroupNorm(32, 64)
+        
         self.layer_out = nn.Linear(64, num_classes)
         
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(p=0.4)
-        self.batchnorm1 = nn.BatchNorm1d(256)
-        self.batchnorm2 = nn.BatchNorm1d(128)
-        self.batchnorm3 = nn.BatchNorm1d(64)
 
     def forward(self, x):
         x = self.layer_1(x)
-        x = self.batchnorm1(x)
+        # Apply GroupNorm before the activation function
+        x = self.groupnorm1(x)
         x = self.relu(x)
         x = self.dropout(x)
         
         x = self.layer_2(x)
-        x = self.batchnorm2(x)
+        x = self.groupnorm2(x)
         x = self.relu(x)
         x = self.dropout(x)
         
         x = self.layer_3(x)
-        x = self.batchnorm3(x)
+        x = self.groupnorm3(x)
         x = self.relu(x)
         x = self.dropout(x)
         
