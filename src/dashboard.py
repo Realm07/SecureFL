@@ -24,8 +24,7 @@ from utils import visualize_tabular_results, visualize_predictions, create_time_
 
 st.set_page_config(layout="wide", page_title="Secure Federated Learning Demo")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ICON_DIR = os.path.join(BASE_DIR, "assets")
+ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
 @st.cache_data
@@ -361,7 +360,7 @@ def display_final_proof(config, real_results):
     st.markdown("---")
     st.header("Model Proof: Testing on Unseen Data")
 
-    MODEL_SAVE_PATH = os.path.join(BASE_DIR, config['model_save_path'])
+    MODEL_SAVE_PATH = os.path.join(RESULTS_DIR, config['model_save_path'])
     if not os.path.exists(MODEL_SAVE_PATH):
         st.error(f"Model file not found at `{MODEL_SAVE_PATH}`. Please run `python main.py --dataset {config['dataset_name']}` to train it first.")
         return
@@ -382,7 +381,7 @@ def display_final_proof(config, real_results):
             trained_model.eval()
             st.success("Successfully loaded the trained secure model!")
             
-            scaler_path = os.path.join(BASE_DIR, "arrhythmia_scaler.joblib")
+            scaler_path = os.path.join(RESULTS_DIR, "arrhythmia_scaler.joblib")
             if not os.path.exists(scaler_path) or "patient_samples" not in real_results:
                 st.error("Required arrhythmia files not found. Please re-run the main training script.")
                 return
@@ -438,10 +437,12 @@ if __name__ == "__main__":
 
     dataset_name = st.sidebar.selectbox("Choose a Dataset:", ("arrhythmia", "mnist"))
     config = get_config(dataset_name)
-    
+    RESULTS_DIR = config['results_dir']
+
     @st.cache_data
-    def load_json_results(path):
-        full_path = os.path.join(BASE_DIR, path)
+    def load_json_results(filename):
+        # This function now reads from the correct, centralized directory
+        full_path = os.path.join(RESULTS_DIR, filename)
         if os.path.exists(full_path):
             with open(full_path, 'r') as f: return json.load(f)
         return None

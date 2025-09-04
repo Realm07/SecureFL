@@ -16,7 +16,11 @@ from utils import plot_comparison_results
 def main(dataset_name):
     """
     Main function to run all training simulations, collect benchmark data,
+<<<<<<< Updated upstream
     and save the results and a final model.
+=======
+    and save the results and a final model to the 'results' directory.
+>>>>>>> Stashed changes
     """
     print(f"\n{'='*60}")
     print(f"--- Running Full Training & Benchmarking for Dataset: {dataset_name.upper()} ---")
@@ -25,16 +29,22 @@ def main(dataset_name):
     config = get_config(dataset_name)
     RESULTS_DIR = config['results_dir']
     os.makedirs(RESULTS_DIR, exist_ok=True)
+<<<<<<< Updated upstream
     patient_samples_for_dashboard = None
     feature_names_for_dashboard = None
+=======
+>>>>>>> Stashed changes
 
     # --- 1. Load and Prepare Datasets ---
     try:
         if dataset_name == 'arrhythmia':
             trainset, testset, X_test_original, y_test_original = get_datasets(config)
             
+<<<<<<< Updated upstream
             # Save the scaler in the 'src' directory
             
+=======
+>>>>>>> Stashed changes
             scaler_save_path = os.path.join(RESULTS_DIR, "arrhythmia_scaler.joblib")
             joblib.dump(config['scaler'], scaler_save_path)
             print(f"Saved fitted scaler to {scaler_save_path}")
@@ -62,10 +72,15 @@ def main(dataset_name):
     # --- NEW: Run all four simulations ---
     initial_model = get_model(config)
     
+<<<<<<< Updated upstream
     # Simulation 1: Plaintext
     pt_acc, _, pt_times, sample_pt_update = run_simulation_plaintext(
         copy.deepcopy(initial_model), trainset, test_loader, config
     )
+=======
+    RESULTS_PATH = os.path.join(RESULTS_DIR, f"training_results_{dataset_name}.json")
+    print(f"\nSaving comprehensive training benchmark results to: {RESULTS_PATH}")
+>>>>>>> Stashed changes
     
     # Simulation 2: Selective HE (SHE)
     she_acc, _, she_times, final_secure_model = run_simulation_secure(
@@ -110,8 +125,16 @@ def main(dataset_name):
     if final_secure_model:
         MODEL_SAVE_PATH = os.path.join(RESULTS_DIR, config['model_save_path'])
         print(f"\nSaving final SECURE model state (from SHE run) to: {MODEL_SAVE_PATH}")
+<<<<<<< Updated upstream
         torch.save(final_secure_model.state_dict(), MODEL_SAVE_PATH)
         print("Model saved successfully. You can now build the dashboard.")
+=======
+        try:
+            torch.save(final_secure_model.state_dict(), MODEL_SAVE_PATH)
+            print("Model saved successfully. You can now view the results in the dashboard.")
+        except Exception as e:
+            print(f"[ERROR] Could not save model state: {e}")
+>>>>>>> Stashed changes
     else:
         print("\nSecure simulation did not produce a final model to save.")
 
