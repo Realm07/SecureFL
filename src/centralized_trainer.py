@@ -66,6 +66,8 @@ def train_centralized(model, train_loader, test_loader, config):
 
 def main(dataset_name):
     config = get_config(dataset_name)
+    RESULTS_DIR = config['results_dir']
+    os.makedirs(RESULTS_DIR, exist_ok=True)
     
     if dataset_name == 'arrhythmia':
         trainset, testset, _, _ = get_datasets(config)
@@ -79,7 +81,7 @@ def main(dataset_name):
 
     final_accuracy, total_time, accuracy_history = train_centralized(model, train_loader, test_loader, config)
 
-    results_path = f"centralized_results_{dataset_name}.json"
+    results_path = os.path.join(RESULTS_DIR, f"centralized_results_{dataset_name}.json")
     results_data = {
         "dataset_name": dataset_name,
         "final_accuracy": final_accuracy,
