@@ -1,4 +1,3 @@
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -9,7 +8,7 @@ import torchvision
 import torchvision.transforms as transforms
 from sklearn.metrics import confusion_matrix, classification_report
 import seaborn as sns
-from data_loader import get_datasets
+from .data_loader import get_datasets
 
 
 
@@ -163,4 +162,5 @@ def create_time_comparison_chart(time_df):
 
     fig.tight_layout()
 
+    return fig
     return fig

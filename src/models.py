@@ -22,45 +22,26 @@ class SmallerCNN(nn.Module):
 
 class ArrhythmiaMLP(nn.Module):
     """
-    A DP-compatible MLP for the Arrhythmia dataset.
-    Uses GroupNorm instead of BatchNorm.
+    A deeper and wider DP-compatible MLP for the Arrhythmia dataset.
+    Uses GroupNorm and LeakyReLU.
     """
     def __init__(self, num_features, num_classes):
         super(ArrhythmiaMLP, self).__init__()
-        self.layer_1 = nn.Linear(num_features, 256)
-        # GroupNorm divides channels into groups. For a linear layer, channels = features.
-        # We need to choose a number of groups that divides the number of channels.
-        # 32 is a common choice and divides 256, 128, and 64.
-        self.groupnorm1 = nn.GroupNorm(32, 256)
+        self.layer_1 = nn.Linear(num_features, 512)
+        self.groupnorm1 = nn.GroupNorm(32, 512)
+        self.layer_2 = nn.Linear(512, 256)
+        self.groupnorm2 = nn.GroupNorm(32, 256)
+        self.layer_3 = nn.Linear(256, 128)
+        self.groupnorm3 = nn.GroupNorm(32, 128)
+        self.layer_out = nn.Linear(128, num_classes)
         
-        self.layer_2 = nn.Linear(256, 128)
-        self.groupnorm2 = nn.GroupNorm(32, 128)
-        
-        self.layer_3 = nn.Linear(128, 64)
-        self.groupnorm3 = nn.GroupNorm(32, 64)
-        
-        self.layer_out = nn.Linear(64, num_classes)
-        
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(p=0.4)
+        self.act = nn.LeakyReLU(0.01)
+        self.dropout = nn.Dropout(p=0.3)
 
     def forward(self, x):
-        x = self.layer_1(x)
-        # Apply GroupNorm before the activation function
-        x = self.groupnorm1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        
-        x = self.layer_2(x)
-        x = self.groupnorm2(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        
-        x = self.layer_3(x)
-        x = self.groupnorm3(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        
+        x = self.dropout(self.act(self.groupnorm1(self.layer_1(x))))
+        x = self.dropout(self.act(self.groupnorm2(self.layer_2(x))))
+        x = self.dropout(self.act(self.groupnorm3(self.layer_3(x))))
         x = self.layer_out(x)
         return x
 
