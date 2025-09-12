@@ -7,10 +7,10 @@ import json
 import argparse
 import os
 
-from config import get_config
-from data_loader import get_datasets
-from models import get_model
-from utils import evaluate_global_model
+from .config import get_config
+from .data_loader import get_datasets
+from .models import get_model
+from .utils import evaluate_global_model
 
 def train_centralized(model, train_loader, test_loader, config):
     """Trains a model on the entire dataset in a centralized fashion."""

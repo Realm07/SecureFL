@@ -3,12 +3,13 @@ import torch
 from torch.utils.data import DataLoader
 import random
 import time
+from collections import OrderedDict
 import tenseal as ts
 
-from data_loader import partition_iid
-from fl_logic import train_local_client_plaintext, train_local_client_secure, federated_average_plaintext
-from he_tenseal import aggregate_and_decrypt_tenseal
-from utils import evaluate_global_model
+from .data_loader import partition_iid
+from .fl_logic import train_local_client_plaintext, train_local_client_secure
+from .he_tenseal import aggregate_and_decrypt_tenseal
+from .utils import evaluate_global_model
 
 def run_simulation_plaintext(global_model, trainset, test_loader, config):
     """Runs the entire FL simulation WITHOUT any encryption for benchmarking."""
@@ -121,9 +122,15 @@ def run_simulation_secure(global_model, trainset, test_loader, config, privacy_p
         ]
         
         if valid_updates := [u for u in encrypted_updates if u is not None]:
-            avg_state_dict = aggregate_and_decrypt_tenseal(context, valid_updates, len(valid_updates))
-            if avg_state_dict:
-                global_model.load_state_dict(avg_state_dict)
+            # The returned dict is the average of weight *deltas*
+            avg_delta_dict = aggregate_and_decrypt_tenseal(context, valid_updates, len(valid_updates))
+            if avg_delta_dict:
+                # Apply the delta to the current global model state
+                current_global_dict = global_model.state_dict()
+                new_global_dict = OrderedDict()
+                for key in current_global_dict:
+                    new_global_dict[key] = current_global_dict[key] + avg_delta_dict[key]
+                global_model.load_state_dict(new_global_dict)
                 print("Server: Global model updated.")
         
         accuracy, loss = evaluate_global_model(global_model, test_loader, config['device'])

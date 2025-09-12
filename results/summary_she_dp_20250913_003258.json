@@ -1,0 +1,7 @@
+{
+    "privacy_profile": "she_dp",
+    "config": {
+        "num_clients": 10,
+        "clients_per_round": 5,
+        "batch_size": 32,
+        "device": 

@@ -5,8 +5,9 @@ import copy
 import time
 import traceback
 from collections import OrderedDict
-from he_tenseal import encrypt_state_dict_tenseal
+from .he_tenseal import encrypt_state_dict_tenseal
 from opacus import PrivacyEngine
+from torch.utils.data import DataLoader
 
 def _create_optimizer(model, config):
     """Helper function to create an optimizer based on the config."""
@@ -57,40 +58,31 @@ def train_local_client_plaintext(model, dataloader, config):
         print(f"  ERROR during plaintext local training: {e}"); traceback.print_exc()
         return None
 
-
-def train_local_client_secure(model, dataloader, config, context, slot_count, privacy_profile="she"):
+def train_local_client_secure(model, dataloader, config, context, slot_count):
     """
     Trains a local client model with a specified privacy profile.
-    - privacy_profile: 'she', 'full_he', 'she_dp', 'full_he_dp'
+    The profile is read from the config dictionary.
     """
-    local_model = copy.deepcopy(model).to(config['device'])
+    privacy_profile = config.get('privacy_profile', 'she')
+    initial_state_dict = copy.deepcopy(model.state_dict())
+    
+    device = torch.device(config.get('device', 'cpu'))
+    local_model = copy.deepcopy(model).to(device)
     local_model.train()
     optimizer = _create_optimizer(local_model, config)
     
-    # --- NEW: Attach PrivacyEngine if DP is enabled ---
+    training_dataloader = dataloader
     privacy_engine = None
+
     if 'dp' in privacy_profile:
         print("  Attaching Opacus Differential Privacy Engine...")
-        # Note: Opacus modifies the dataloader, so we need to handle this
-        from torch.utils.data import DataLoader
-        
-        # We need to recreate the dataloader for Opacus to wrap it correctly
-        # This is a nuance of how Opacus works with distributed sampling
         opacus_dataloader = DataLoader(dataloader.dataset, batch_size=config['batch_size'], shuffle=True)
-        
         local_model, optimizer, opacus_dataloader, privacy_engine = _attach_dp_engine(
             local_model, optimizer, opacus_dataloader, config
         )
-        # Use the new dataloader for training
         training_dataloader = opacus_dataloader
-    else:
-        training_dataloader = dataloader
 
-    scheduler = optim.lr_scheduler.StepLR(
-        optimizer, 
-        step_size=config.get('lr_scheduler_step_size', 100),
-        gamma=config.get('lr_scheduler_gamma', 1.0)
-    )
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
     criterion = nn.CrossEntropyLoss()
     
     profile_str = privacy_profile.upper().replace('_', ' + ')
@@ -100,7 +92,7 @@ def train_local_client_secure(model, dataloader, config, context, slot_count, pr
     try:
         for epoch in range(config['local_epochs']):
             for data, target in training_dataloader:
-                data, target = data.to(config['device']), target.to(config['device'])
+                data, target = data.to(device), target.to(device)
                 optimizer.zero_grad()
                 output = local_model(data)
                 loss = criterion(output, target)
@@ -109,18 +101,35 @@ def train_local_client_secure(model, dataloader, config, context, slot_count, pr
             scheduler.step()
         
         if privacy_engine:
-            epsilon = privacy_engine.get_epsilon(delta=1e-5)
+            epsilon = privacy_engine.get_epsilon(delta=config.get('delta', 1e-5))
             print(f"  DP Epsilon after {config['local_epochs']} epochs: {epsilon:.2f}")
 
         print(f"  Local training finished ({(time.time() - train_start):.2f}s).")
         
-        # Determine which layers to encrypt based on the profile
+        # --- START OF DEFINITIVE FIX ---
+        final_state_dict_raw = local_model.cpu().state_dict()
+        
+        # Create a new, unwrapped state dict if the model was wrapped by Opacus
+        final_state_dict = OrderedDict()
+        for key, value in final_state_dict_raw.items():
+            if key.startswith('_module.'):
+                new_key = key[len('_module.'):]
+                final_state_dict[new_key] = value
+            else:
+                final_state_dict[key] = value
+
+        # Now, both initial_state_dict and final_state_dict have matching keys.
+        weight_delta = OrderedDict()
+        for key in final_state_dict:
+            weight_delta[key] = final_state_dict[key] - initial_state_dict[key]
+        # --- END OF DEFINITIVE FIX ---
+
         encrypted_layers = None
         if 'she' in privacy_profile:
             encrypted_layers = config.get('encrypted_layers')
         
-        print(f"  Starting TenSEAL encryption...")
-        return encrypt_state_dict_tenseal(context, local_model.cpu().state_dict(), slot_count, encrypted_layers)
+        print(f"  Starting TenSEAL encryption of the weight delta...")
+        return encrypt_state_dict_tenseal(context, weight_delta, slot_count, encrypted_layers)
         
     except Exception as e:
         print(f"  ERROR during secure local training: {e}"); traceback.print_exc()

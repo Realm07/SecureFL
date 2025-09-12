@@ -13,3 +13,6 @@ streamlit-drawable-canvas
 streamlit-shap
 Pillow
 opacus
+fastapi
+uvicorn
+websockets
