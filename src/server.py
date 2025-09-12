@@ -24,7 +24,8 @@ app = FastAPI()
 
 class ServerState:
     def __init__(self):
-        self.privacy_profile = "she_dp"
+        # Using she_dp for demonstration of the fix
+        self.privacy_profile = "she_dp" 
         print(f"INFO: Initializing server with Privacy Profile: {self.privacy_profile.upper()}")
         
         self.dataset_name = "arrhythmia"
@@ -42,14 +43,23 @@ class ServerState:
         if self.privacy_profile == "she":
             self.config['encrypted_layers'] = principled_she_layers
             self.config['dp_noise_multiplier'] = 0.0
+            self.config['local_epochs'] = 3 # Can be lower for non-DP
         elif self.privacy_profile == "she_dp":
             self.config['encrypted_layers'] = principled_she_layers
-            self.config['dp_noise_multiplier'] = 0.1  # PREVIOUSLY 0.4
-            self.config['dp_max_grad_norm'] = 1.0    # PREVIOUSLY 1.5
+            # --- FIX 2: ADJUST DP HYPERPARAMETERS ---
+            # A low noise multiplier is fine, but the grad norm was too restrictive.
+            # Increasing it allows more of the gradient signal to be preserved before noise is added.
+            self.config['dp_noise_multiplier'] = 0.4 
+            self.config['dp_max_grad_norm'] = 1.5   
             print("INFO: DP parameters tuned for model convergence.")
 
         self.config['num_rounds'] = 50
-        self.config['local_epochs'] = 1
+        
+        # --- FIX 1: INCREASE LOCAL EPOCHS FOR DP ---
+        # This is the most critical fix. DP requires a stronger signal from each client
+        # to overcome the added noise. 1 epoch is not enough.
+        self.config['local_epochs'] = 5
+
         self.config['learning_rate'] = 0.001
         self.config['optimizer'] = 'adam'
         self.config['weight_decay'] = 1e-5
@@ -67,11 +77,9 @@ class ServerState:
         self.server_adam_m = {name: torch.zeros_like(param) for name, param in self.global_model.named_parameters()}
         self.server_adam_v = {name: torch.zeros_like(param) for name, param in self.global_model.named_parameters()}
         self.server_adam_step = 0
-        # print("INFO: Server-side Adam state (FedAdam) initialized.")
         
         self.connected_clients: Dict[int, WebSocket] = {}
         self.current_round = 0
-        # ... rest of state initialization
         self.updates_for_round, self.clients_ready_for_round, self.update_received_event_for_round, self.chunk_buffers = {}, {}, {}, {}
         self.csv_writer, self.csv_file, self.accuracy_history = None, None, []
         POLY_MOD_DEGREE = 16384
@@ -125,13 +133,11 @@ class ConnectionManager:
         state.connected_clients[client_id] = websocket
 
     def disconnect(self, client_id: int):
-        # Clean up any lingering chunk buffers for this client
         session_key_prefix = f"r{state.current_round}_c{client_id}"
         keys_to_del = [k for k in state.chunk_buffers if k.startswith(session_key_prefix)]
         for k in keys_to_del:
             if k in state.chunk_buffers:
                 del state.chunk_buffers[k]
-        # Remove from active connections
         if client_id in state.connected_clients:
             del state.connected_clients[client_id]
 
@@ -164,7 +170,6 @@ async def training_orchestrator():
             continue
 
         selected_clients = random.sample(connected_ids, state.config['clients_per_round'])
-        # print(f"Selected clients for round {round_num}: {selected_clients}")
         
         state.updates_for_round[round_num] = []
         state.clients_ready_for_round[round_num] = []
@@ -188,44 +193,38 @@ async def training_orchestrator():
         for client_id in selected_clients: await manager.send_to_client(client_id, json.dumps(message))
 
         try:
-            # print(f"Waiting for {len(selected_clients)} clients to finish training...")
             await asyncio.wait_for(wait_for_clients_ready(round_num, len(selected_clients)), timeout=120.0)
         except asyncio.TimeoutError: print(f"Round {round_num} timed out waiting for clients.")
         
         ready_clients = state.clients_ready_for_round[round_num]
-        # print(f"{len(ready_clients)} clients are ready. Starting to pull updates.")
         for client_id in ready_clients:
             try:
                 state.update_received_event_for_round[round_num].clear()
-                # print(f"Requesting update from Client #{client_id}...")
                 await manager.send_to_client(client_id, json.dumps({"type": "REQUEST_UPDATE"}))
                 await asyncio.wait_for(state.update_received_event_for_round[round_num].wait(), timeout=90.0)
-                # print(f"Successfully received and processed update from Client #{client_id}.")
             except asyncio.TimeoutError: print(f"Timed out waiting for update from Client #{client_id}.")
             except Exception as e: print(f"Error while pulling update from Client #{client_id}: {e}")
 
         updates_to_aggregate = state.updates_for_round.get(round_num, [])
         if updates_to_aggregate:
             print(f"Aggregating {len(updates_to_aggregate)} update deltas...")
-            avg_delta_dict_raw = await asyncio.to_thread(
+            avg_delta_dict = await asyncio.to_thread(
                 aggregate_and_decrypt_tenseal, state.context, updates_to_aggregate, len(updates_to_aggregate)
             )
             
-            if avg_delta_dict_raw:
-                # --- DEFINITIVE FIX 3: HANDLE OPACUS PREFIX ON THE SERVER ---
-                # The server is responsible for aligning the incoming delta keys with its own model keys.
-                avg_delta_dict = OrderedDict()
-                for key, value in avg_delta_dict_raw.items():
-                    clean_key = key[len('_module.'):] if key.startswith('_module.') else key
-                    avg_delta_dict[clean_key] = value
-                # --------------------------------------------------------------
+            if avg_delta_dict:
+                # --- FIX 3: REMOVE REDUNDANT KEY CLEANING ---
+                # The client (`fl_logic.py`) is now solely responsible for stripping the '_module.' 
+                # prefix from Opacus. The server should expect a clean delta, simplifying its logic.
+                # The old block that stripped the prefix here has been removed.
 
-                # print("Applying updates using server-side Adam (FedAdam)...")
                 state.server_adam_step += 1
                 beta1, beta2, eps, server_lr = 0.9, 0.999, 1e-8, 0.01
                 current_global_dict, new_global_dict = state.global_model.state_dict(), OrderedDict()
 
                 for key, param in state.global_model.named_parameters():
+                    # The `key` here is clean (e.g., 'layer_2.weight').
+                    # `avg_delta_dict` from the aggregation also has clean keys.
                     delta = avg_delta_dict.get(key, torch.zeros_like(param))
                     delta = delta.to(param.device)
                     grad = -delta
@@ -246,7 +245,6 @@ async def training_orchestrator():
                 state.csv_writer.writerow([round_num, accuracy, state.privacy_profile])
                 state.csv_file.flush()
         
-        # print(f"Cleaning up state for round {round_num}.")
         if round_num in state.clients_ready_for_round: del state.clients_ready_for_round[round_num]
         if round_num in state.update_received_event_for_round: del state.update_received_event_for_round[round_num]
         if round_num in state.updates_for_round: del state.updates_for_round[round_num]
@@ -261,10 +259,8 @@ async def wait_for_clients_ready(round_num, num_expected):
 async def startup_event(): asyncio.create_task(training_orchestrator())
 
 def process_full_update(json_string: str, round_num: int):
-    # print(f"Reassembly complete for round {round_num}. Deserializing model update...")
     update_payload_dict = json.loads(json_string)
     deserialized_update = deserialize_model_update(update_payload_dict)
-    # print(f"Successfully deserialized update for round {round_num}.")
     return deserialized_update
 
 @app.websocket("/ws/{client_id}")
@@ -281,12 +277,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: int):
             
             if msg_type == 'TRAINING_COMPLETE':
                 if round_num in state.clients_ready_for_round: state.clients_ready_for_round[round_num].append(client_id)
-                # print(f"Client #{client_id} reported TRAINING_COMPLETE for round {round_num}.")
             
             elif msg_type == 'START_UPDATE_STREAM':
                 session_key = f"r{round_num}_c{client_id}"
                 state.chunk_buffers[session_key] = [None] * payload['total_chunks']
-                # print(f"Client #{client_id} starting stream for round {round_num} with {payload['total_chunks']} chunks.")
 
             elif msg_type == 'UPDATE_CHUNK':
                 session_key = f"r{round_num}_c{client_id}"
@@ -301,7 +295,6 @@ async def websocket_endpoint(websocket: WebSocket, client_id: int):
                             state.update_received_event_for_round[round_num].set()
             
             elif msg_type == 'RETURN_UPDATE':
-                # print(f"Received single update from Client #{client_id} for round {round_num}.")
                 deserialized_update = deserialize_model_update(payload['update'])
                 if round_num in state.updates_for_round:
                     state.updates_for_round[round_num].append(deserialized_update)
