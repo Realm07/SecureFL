@@ -1,3 +1,4 @@
+   
 import asyncio
 from datetime import datetime
 import json
@@ -12,6 +13,8 @@ import torch
 from torch.optim.lr_scheduler import StepLR
 import csv
 import numpy as np
+import hashlib
+import io 
 
 from .config import get_config
 from .models import get_model
@@ -19,13 +22,28 @@ from .he_tenseal import aggregate_and_decrypt_tenseal
 from .serialization import serialize_model, deserialize_model_update
 from .utils import evaluate_global_model
 from .data_loader import get_datasets
+from .ledger import FederationLedger
+from .tokenomics import TokenManager
 
 app = FastAPI()
+
+def hash_model_state(model: torch.nn.Module) -> str:
+    """Creates a deterministic hash of a model's state dictionary."""
+    # Use a buffer to save the state dict in a consistent byte format
+    buffer = io.BytesIO()
+    torch.save(model.state_dict(), buffer)
+    buffer.seek(0)
+    
+    # Create a hash of the byte stream
+    hasher = hashlib.sha256()
+    hasher.update(buffer.read())
+    
+    return hasher.hexdigest()
 
 class ServerState:
     def __init__(self):
         # Using she_dp for demonstration of the fix
-        self.privacy_profile = "she_dp" 
+        self.privacy_profile = "she" 
         print(f"INFO: Initializing server with Privacy Profile: {self.privacy_profile.upper()}")
         
         self.dataset_name = "arrhythmia"
@@ -87,6 +105,14 @@ class ServerState:
         self.context.generate_galois_keys()
         self.context.global_scale = 2**48
         self.slot_count = POLY_MOD_DEGREE // 2
+
+        ledger_file = os.path.join(self.config.get('results_dir', 'results'), 'federation_ledger.json')
+        self.ledger = FederationLedger(storage_path=ledger_file)
+
+        token_file = os.path.join(self.config.get('results_dir', 'results'), 'token_balances.json')
+        self.token_manager = TokenManager(storage_path=token_file)
+        self.MINIMUM_STAKE_TO_PARTICIPATE = 50.0
+        self.REWARD_AMOUNT_PER_ROUND = 10.0
 
 state = ServerState()
 
@@ -162,14 +188,20 @@ async def training_orchestrator():
         state.current_round += 1
         round_num = state.current_round
         print(f"\n--- Starting Global Round {round_num}/{state.config['num_rounds']}")
-        
         connected_ids = list(state.connected_clients.keys())
-        if len(connected_ids) < state.config['clients_per_round']:
-            print(f"Waiting for more clients... Need {state.config['clients_per_round']}, have {len(connected_ids)}. Retrying in 10s.")
+        eligible_clients = [
+            cid for cid in connected_ids 
+            if state.token_manager.has_sufficient_stake(cid, state.MINIMUM_STAKE_TO_PARTICIPATE)
+        ]
+        print(f"INFO: {len(eligible_clients)}/{len(connected_ids)} connected clients are eligible (stake >= {state.MINIMUM_STAKE_TO_PARTICIPATE}).")
+        
+        if len(eligible_clients) < state.config['clients_per_round']:
+            print(f"Waiting for more eligible clients... Need {state.config['clients_per_round']}, have {len(eligible_clients)}. Retrying in 10s.")
             await asyncio.sleep(10)
             continue
-
-        selected_clients = random.sample(connected_ids, state.config['clients_per_round'])
+        
+        # Select from the eligible pool
+        selected_clients = random.sample(eligible_clients, state.config['clients_per_round'])
         
         state.updates_for_round[round_num] = []
         state.clients_ready_for_round[round_num] = []
@@ -241,10 +273,23 @@ async def training_orchestrator():
                 
                 accuracy, _ = evaluate_global_model(state.global_model, state.test_loader, state.config['device'])
                 print(f"--- Round {round_num} Complete --- Global Model Accuracy: {accuracy:.2f}% ---")
+                state.token_manager.reward_clients(selected_clients, state.REWARD_AMOUNT_PER_ROUND)
                 state.accuracy_history.append(accuracy)
                 state.csv_writer.writerow([round_num, accuracy, state.privacy_profile])
                 state.csv_file.flush()
-        
+
+                try:
+                    model_hash = hash_model_state(state.global_model)
+                    new_block = state.ledger.add_round_to_ledger(
+                        round_number=round_num,
+                        participants=selected_clients,
+                        global_model_hash=model_hash,
+                        accuracy=accuracy
+                    )
+                    print(f"    New block #{new_block['index']} added to ledger with hash: {new_block['hash'][:10]}...")
+                except Exception as e:
+                    print(f"ERROR: Could not write to ledger for round {round_num}: {e}")
+                
         if round_num in state.clients_ready_for_round: del state.clients_ready_for_round[round_num]
         if round_num in state.update_received_event_for_round: del state.update_received_event_for_round[round_num]
         if round_num in state.updates_for_round: del state.updates_for_round[round_num]
@@ -266,6 +311,9 @@ def process_full_update(json_string: str, round_num: int):
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: int):
     await manager.connect(websocket, client_id)
+    # --- TOKENOMICS: REGISTER CLIENT ON CONNECT ---
+    state.token_manager.register_client(client_id)
+    # ---------------------------------------------
     print(f"Client #{client_id} connected.")
     try:
         while True:
@@ -302,3 +350,21 @@ async def websocket_endpoint(websocket: WebSocket, client_id: int):
 
     except WebSocketDisconnect as e: print(f"Client #{client_id} disconnected. Code: {e.code}, Reason: {e.reason}"); manager.disconnect(client_id)
     except Exception as e: print(f"An error occurred with client #{client_id}: {e}"); traceback.print_exc(); manager.disconnect(client_id)
+
+@app.get("/ledger")
+async def get_ledger():
+    """
+    An API endpoint to view the entire Federation Ledger.
+    """
+    return {
+        "chain": state.ledger.chain,
+        "length": len(state.ledger.chain),
+    }
+
+@app.get("/tokenomics")
+async def get_tokenomics_state():
+    """
+    An API endpoint to view the current token balances and stakes.
+    """
+
+    return state.token_manager.get_all_accounts()
