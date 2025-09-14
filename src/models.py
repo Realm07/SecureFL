@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -45,15 +46,45 @@ class ArrhythmiaMLP(nn.Module):
         x = self.layer_out(x)
         return x
 
+class BatteryLSTM(nn.Module):
+    """
+    An LSTM-based model to predict Remaining Useful Life (RUL) of batteries.
+    This is a regression model.
+    """
+    # --- ADD drop_prob to the constructor ---
+    def __init__(self, input_dim, hidden_dim, n_layers, output_dim=1, drop_prob=0.2):
+        super(BatteryLSTM, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.n_layers = n_layers
+
+        # Use the passed drop_prob
+        self.lstm = nn.LSTM(input_dim, hidden_dim, n_layers, batch_first=True, dropout=drop_prob)
+        
+        self.fc = nn.Linear(hidden_dim, output_dim)
+        
+    def forward(self, x):
+        h0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim).to(x.device)
+        c0 = torch.zeros(self.n_layers, x.size(0), self.hidden_dim).to(x.device)
+        out, _ = self.lstm(x, (h0, c0))
+        out = self.fc(out[:, -1, :])
+        return out
 
 def get_model(config):
     """Factory function to return the appropriate model."""
-    if config['model_name'] == 'cnn':
+    model_name = config.get('model_name')
+    if model_name == 'cnn':
         return SmallerCNN()
-    elif config['model_name'] == 'mlp':
+    elif model_name == 'mlp':
         return ArrhythmiaMLP(
             num_features=config['num_features'], 
             num_classes=config['num_classes']
         )
+    elif model_name == 'lstm_battery':
+        return BatteryLSTM(
+            input_dim=config['num_features'],
+            hidden_dim=config['lstm_hidden_dim'],
+            n_layers=config['lstm_n_layers'],
+            drop_prob=config.get('lstm_drop_prob', 0.2) # Get from config, default to 0.2
+        )
     else:
-        raise ValueError(f"Unknown model name: {config['model_name']}")
+        raise ValueError(f"Unknown model name: {model_name}")
