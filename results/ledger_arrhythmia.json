@@ -935,5 +935,21 @@
         },
         "previous_hash": "9b31ece45e9833d3b4e9e489d17a0337e7a1aaf63cf59233804f93af1894cb65",
         "hash": "9e2f93da993a6e9b63481b99879b4347f940c1d1bd5378ae141e5001ede10c62"
+    },
+    {
+        "index": 60,
+        "timestamp": 1757865965.4002786,
+        "round_data": {
+            "round_number": 1,
+            "participants": [
+                0,
+                1,
+                3
+            ],
+            "global_model_hash": "8c57c0bfa421d1ed314d55c7a5c1c887408fd12cbc4110d40185c75bb34d00e6",
+            "global_model_accuracy": 66.34146341463415
+        },
+        "previous_hash": "756105254e5a634b03924c123132873688ae76a3c8f5b96821a5546462b1baec",
+        "hash": "5b29b8ab0649224c76a0b342cb7ba2de0643351b15040927c3e07805dbad9e82"
     }
 ]

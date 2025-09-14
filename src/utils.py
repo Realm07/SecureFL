@@ -10,20 +10,46 @@ from sklearn.metrics import confusion_matrix, classification_report
 import seaborn as sns
 from .data_loader import get_datasets
 
+def evaluate_global_model(model, test_loader, device, metric='accuracy'):
+    """Evaluates the model on the test set for either classification or regression."""
+    model.eval()
+    model.to(device)
+    
+    if metric == 'accuracy':
+        criterion = nn.CrossEntropyLoss()
+        correct, total, total_loss = 0, 0, 0.0
+        with torch.no_grad():
+            for data, target in test_loader:
+                data, target = data.to(device), target.to(device)
+                outputs = model(data)
+                loss = criterion(outputs, target)
+                total_loss += loss.item()
+                _, predicted = torch.max(outputs.data, 1)
+                total += target.size(0)
+                correct += (predicted == target).sum().item()
+        
+        final_metric = 100.0 * correct / total if total > 0 else 0.0
+        avg_loss = total_loss / len(test_loader) if len(test_loader) > 0 else 0.0
+        model.train()
+        return final_metric, avg_loss
 
-
-def evaluate_global_model(model, test_loader, device):
-    model.eval(); correct, total, test_loss = 0, 0, 0.0
-    criterion = nn.CrossEntropyLoss()
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            outputs = model(data); loss = criterion(outputs, target); test_loss += loss.item()
-            _, predicted = torch.max(outputs.data, 1)
-            total += target.size(0); correct += (predicted == target).sum().item()
-    accuracy = 100.0 * correct / total if total > 0 else 0.0
-    avg_loss = test_loss / len(test_loader) if len(test_loader) > 0 else 0.0
-    model.train(); return accuracy, avg_loss
+    elif metric == 'rmse':
+        criterion = nn.MSELoss()
+        losses = []
+        with torch.no_grad():
+            for features, labels in test_loader:
+                features, labels = features.to(device), labels.to(device)
+                outputs = model(features)
+                loss = criterion(outputs, labels)
+                losses.append(loss.item())
+        
+        mean_loss = np.mean(losses) if losses else 0
+        rmse = np.sqrt(mean_loss)
+        model.train()
+        return rmse, mean_loss
+    
+    else:
+        raise ValueError(f"Unknown metric: {metric}")
 
 def plot_comparison_results(plaintext_results, secure_results, config):
     pt_acc, pt_loss = plaintext_results

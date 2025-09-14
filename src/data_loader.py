@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-
+from .data_loader_nasa import get_nasa_datasets
 
 def partition_iid(dataset, num_clients):
     if num_clients == 0: return [], {}
@@ -74,23 +74,59 @@ def load_arrhythmia_data(config):
 
 
 def get_datasets(config):
-    """Factory function to return train and test datasets."""
+    """
+    Factory function to return train and test datasets.
+    NOW returns a consistent (trainset, testset) tuple for all cases.
+    """
     dataset_name = config['dataset_name']
-    data_root = config['data_root']
-
+    
     if dataset_name == 'mnist':
+        data_root = config['data_root']
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.1307,), (0.3081,))
         ])
         trainset = torchvision.datasets.MNIST(root=data_root, train=True, download=True, transform=transform)
         testset = torchvision.datasets.MNIST(root=data_root, train=False, download=True, transform=transform)
-        
         config['num_classes'] = 10
         return trainset, testset
 
     elif dataset_name == 'arrhythmia':
-        return load_arrhythmia_data(config)
+        # --- THE FIX ---
+        # Call the loader function which returns 4 values...
+        trainset, testset, _, _ = load_arrhythmia_data(config)
+        # ...but only return the 2 values that the live server architecture expects.
+        return trainset, testset
+
+    elif dataset_name == 'nasa_battery':
+        # This already correctly returns (client_datasets, test_set).
+        # We need to make it return (full_train_set, test_set) for consistency.
+        # For now, let's just make the client partition it. The server doesn't need the trainset anyway.
+        client_datasets, test_set = get_nasa_datasets(config)
+        # We will create a "dummy" full trainset for the server, as it's not used there.
+        # The client will call this function again and use the partitioned datasets.
+        # A more elegant solution would be to split train/test inside `get_nasa_datasets`
+        # and then partition the trainset.
+        # For simplicity and to match the arrhythmia change, let's return a dummy trainset for the server.
+        # The client logic will correctly partition this later.
+        
+        # This is a bit of a hack for the server side, which only needs the test set.
+        # The client will regenerate the partitioned datasets correctly.
+        full_train_set = torch.utils.data.ConcatDataset(client_datasets)
+        return full_train_set, test_set
 
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
+
+def get_client_datasets(config):
+    """A new helper for the client to get its partitioned data correctly."""
+    dataset_name = config['dataset_name']
+    
+    if dataset_name == 'nasa_battery':
+        client_datasets, _ = get_nasa_datasets(config)
+        return client_datasets
+    else:
+        # For other datasets, partition the full training set
+        full_trainset, _ = get_datasets(config)
+        client_datasets, _ = partition_iid(full_trainset, config['num_clients'])
+        return client_datasets
