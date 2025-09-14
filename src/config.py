@@ -25,7 +25,7 @@ def get_config(dataset_name="mnist"):
     elif dataset_name == "arrhythmia":
         config.update({
             'dataset_name': 'arrhythmia', 'model_name': 'mlp',
-            'model_save_path': 'trained_arrhythmia_model.pth', 'num_rounds': 25,
+            'model_save_path': 'trained_arrhythmia_model.pth', 'num_rounds': 50,
             'local_epochs': 5, 'learning_rate': 0.001, 'optimizer': 'adam',
             'weight_decay': 1e-5, 'metric': 'accuracy',
             # --- ADD THIS LINE ---
@@ -40,28 +40,30 @@ def get_config(dataset_name="mnist"):
     elif dataset_name == "nasa_battery":
         config.update({
             'dataset_name': 'nasa_battery', 
-            'model_name': 'lstm_battery',
+            # --- USE THE NEW MODEL ---
+            'model_name': 'lstm_attention',
+            # -------------------------
             'nasa_data_folder': '1. BatteryAgingARC-FY08Q4',
-            'model_save_path': 'trained_battery_model.pth', 'num_rounds': 50,
+            'model_save_path': 'trained_battery_model.pth', 'num_rounds': 25,
             
-            # --- TUNING ADJUSTMENT FOR STABILITY ---
-            'local_epochs': 5,              # REDUCED from 15. This is the biggest factor.
-            'learning_rate': 0.001,         # Keep this low for stability.
-            'batch_size': 64,               # Increased slightly for faster epochs.
-            'lstm_drop_prob': 0.3,          # Reduced slightly.
+            # --- TUNING FOR DENOISED TIME-SERIES FORECASTING ---
+            'local_epochs': 20,              # More epochs to learn the trend
+            'learning_rate': 0.001,
+            'batch_size': 16,                # Smaller batch size is good for forecasting
+            'lstm_drop_prob': 0.2,
             
-            # Make the model a bit smaller to start.
-            'lstm_hidden_dim': 64,   # REDUCED from 128
-            'lstm_n_layers': 2,      # REDUCED from 3
-            # -----------------------------------------
+            # From Qu et al. paper, Table 2 (they used 64)
+            'lstm_hidden_dim': 64,          
+            'lstm_n_layers': 2,
+            
+            # CRITICAL: Input feature is now a 1D time-series
+            'num_features': 1,              
+            # ------------------------------------------------
             
             'optimizer': 'adam',
             'metric': 'rmse',
-            'sequence_length': 15,
-            'num_features': 300,
-            'encrypted_layers': ['fc.weight', 'fc.bias'],
-            'dp_noise_multiplier': 0.5,
-            'dp_max_grad_norm': 2.0
+            'sequence_length': 10,          # Window size from paper (Table 2)
+            'encrypted_layers': ['fc.weight', 'fc.bias', 'attention_layer.0.weight', 'attention_layer.0.bias', 'attention_layer.2.weight', 'attention_layer.2.bias'],
         })
 
 

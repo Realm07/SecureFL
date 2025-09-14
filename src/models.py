@@ -69,6 +69,40 @@ class BatteryLSTM(nn.Module):
         out = self.fc(out[:, -1, :])
         return out
 
+class LSTMAttention(nn.Module):
+    """
+    An LSTM model with a self-attention mechanism, inspired by recent research
+    for high-accuracy RUL prediction.
+    """
+    def __init__(self, input_dim, hidden_dim, n_layers, output_dim=1, drop_prob=0.2):
+        super(LSTMAttention, self).__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, n_layers, batch_first=True, dropout=drop_prob, bidirectional=True)
+        
+        # Attention layer
+        self.attention_layer = nn.Sequential(
+            nn.Linear(hidden_dim * 2, hidden_dim), # *2 because bidirectional
+            nn.Tanh(),
+            nn.Linear(hidden_dim, 1)
+        )
+        
+        # Final fully connected layer
+        self.fc = nn.Linear(hidden_dim * 2, output_dim)
+
+    def forward(self, x):
+        # LSTM output shape: (batch_size, seq_len, hidden_dim * 2)
+        lstm_out, _ = self.lstm(x)
+        
+        # Attention weights shape: (batch_size, seq_len, 1)
+        attention_weights = self.attention_layer(lstm_out)
+        attention_weights = F.softmax(attention_weights, dim=1)
+        
+        # Context vector shape: (batch_size, hidden_dim * 2)
+        context_vector = torch.sum(attention_weights * lstm_out, dim=1)
+        
+        # Final prediction
+        out = self.fc(context_vector)
+        return out
+    
 def get_model(config):
     """Factory function to return the appropriate model."""
     model_name = config.get('model_name')
@@ -80,11 +114,19 @@ def get_model(config):
             num_classes=config['num_classes']
         )
     elif model_name == 'lstm_battery':
+        # This remains for backward compatibility or other experiments
         return BatteryLSTM(
             input_dim=config['num_features'],
             hidden_dim=config['lstm_hidden_dim'],
             n_layers=config['lstm_n_layers'],
-            drop_prob=config.get('lstm_drop_prob', 0.2) # Get from config, default to 0.2
+            drop_prob=config.get('lstm_drop_prob', 0.2)
+        )
+    elif model_name == 'lstm_attention': # Our new model
+        return LSTMAttention(
+            input_dim=config['num_features'],
+            hidden_dim=config['lstm_hidden_dim'],
+            n_layers=config['lstm_n_layers'],
+            drop_prob=config.get('lstm_drop_prob', 0.2)
         )
     else:
         raise ValueError(f"Unknown model name: {model_name}")
