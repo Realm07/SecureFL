@@ -25,7 +25,7 @@ def get_config(dataset_name="mnist"):
     elif dataset_name == "arrhythmia":
         config.update({
             'dataset_name': 'arrhythmia', 'model_name': 'mlp',
-            'model_save_path': 'trained_arrhythmia_model.pth', 'num_rounds': 50,
+            'model_save_path': 'trained_arrhythmia_model.pth', 'num_rounds': 25,
             'local_epochs': 5, 'learning_rate': 0.001, 'optimizer': 'adam',
             'weight_decay': 1e-5, 'metric': 'accuracy',
             # --- ADD THIS LINE ---

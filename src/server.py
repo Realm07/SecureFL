@@ -12,17 +12,28 @@ import torch
 import csv
 import io
 import hashlib
+from enum import Enum
 
 from .config import get_config
 from .models import get_model
 from .he_tenseal import aggregate_and_decrypt_tenseal
 from .serialization import serialize_model, deserialize_model_update
 from .utils import evaluate_global_model
-from .data_loader import get_datasets
+from .data_manager import DataManager
 from .ledger import FederationLedger
 from .tokenomics import TokenManager
 
 app = FastAPI()
+
+class TaskStatus(str, Enum):
+    IDLE = "IDLE"
+    WAITING_FOR_CLIENTS = "WAITING_FOR_CLIENTS"
+    RUNNING_ROUND = "RUNNING_ROUND"
+    COMPLETED = "COMPLETED"
+
+def task_log(task_id: str, message: str):
+    """A simple structured logger to de-jumble concurrent output."""
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] [Task: {task_id}] {message}")
 
 def hash_model_state(model: torch.nn.Module) -> str:
     buffer = io.BytesIO()
@@ -31,12 +42,13 @@ def hash_model_state(model: torch.nn.Module) -> str:
 
 class FederationTask:
     """Manages the state and execution of a single federated learning task."""
-    def __init__(self, task_id: str, privacy_profile: str):
+    def __init__(self, task_id: str, privacy_profile: str, data_manager: DataManager):
         self.task_id = task_id
         self.privacy_profile = privacy_profile
+        self.status: TaskStatus = TaskStatus.IDLE
         print(f"INFO: Initializing task '{self.task_id}' with profile '{self.privacy_profile.upper()}'")
 
-        self.config = get_config(self.task_id)
+        self.config = data_manager.get_task_config(task_id)
         
         # Configure privacy settings
         if "dp" in self.privacy_profile:
@@ -46,10 +58,10 @@ class FederationTask:
             self.config['dp_noise_multiplier'] = 0.0
         
         # Data and Model
-        _, self.testset = get_datasets(self.config)
+        self.testset = data_manager.get_test_set(task_id) 
         self.global_model = get_model(self.config)
         self.test_loader = torch.utils.data.DataLoader(self.testset, batch_size=512)
-        
+            
         # FedAdam State
         self.server_adam_m = {name: torch.zeros_like(p) for name, p in self.global_model.named_parameters()}
         self.server_adam_v = {name: torch.zeros_like(p) for name, p in self.global_model.named_parameters()}
@@ -79,14 +91,188 @@ class FederationTask:
         self.csv_writer.writerow(['round', self.config['metric'], 'profile'])
         self.csv_file.flush()
         print(f"--- Task '{self.task_id}' logging to {filepath} ---")
+    
+    def is_complete(self):
+        return self.current_round >= self.config['num_rounds']
+
+    async def execute_round(self, manager_instance):
+        """Contains the logic for a single round of federated learning."""
+        self.status = TaskStatus.RUNNING_ROUND
+        self.current_round += 1
+        round_num = self.current_round
+        
+        task_log(self.task_id, f"--- Round {round_num}/{self.config['num_rounds']} ---")
+
+        # 1. Select Clients (This part is already correct in your code)
+        eligible_clients = [cid for cid in manager_instance.connected_clients if manager_instance.token_manager.has_sufficient_stake(cid, manager_instance.MINIMUM_STAKE)]
+        if len(eligible_clients) < self.config['clients_per_round']:
+            task_log(self.task_id, "Not enough eligible clients. Waiting...")
+            self.status = TaskStatus.WAITING_FOR_CLIENTS
+            self.current_round -= 1
+            await asyncio.sleep(10)
+            return
+        
+        selected_clients = random.sample(eligible_clients, self.config['clients_per_round'])
+        task_log(self.task_id, f"Selected clients for round: {selected_clients}")
+        
+        # 2. Start Training on Clients
+        self.updates_for_round[round_num] = []
+        self.clients_ready_for_round[round_num] = []
+        self.update_received_event_for_round[round_num] = asyncio.Event()
+
+        client_config = self._create_client_config() # Create a helper for this
+        message = {
+            "type": "START_TRAINING",
+            "payload": { "task_id": self.task_id, "round": round_num, "model_state_dict": serialize_model(self.global_model), "config": client_config }
+        }
+        for client_id in selected_clients:
+            await manager_instance.connected_clients[client_id].send_text(json.dumps(message))
+
+        # 3. Collect Updates
+        try:
+            # --- FIX: LONGER TIMEOUT FOR FIRST ROUND ---
+            timeout = 300.0 if round_num == 1 else 120.0
+            await asyncio.wait_for(self._wait_for_clients_ready(round_num, len(selected_clients)), timeout=timeout)
+        except asyncio.TimeoutError:
+            task_log(self.task_id, f"Round {round_num} timed out waiting for clients to report completion.")
+
+        ready_clients = self.clients_ready_for_round.get(round_num, [])
+        for client_id in ready_clients:
+            if client_id in manager_instance.connected_clients:
+                try:
+                    self.update_received_event_for_round[round_num].clear()
+                    await manager_instance.connected_clients[client_id].send_text(json.dumps({ "type": "REQUEST_UPDATE", "payload": {"task_id": self.task_id, "round": round_num}}))
+                    await asyncio.wait_for(self.update_received_event_for_round[round_num].wait(), timeout=90.0)
+                except asyncio.TimeoutError:
+                    print(f"Task '{self.task_id}': Timed out waiting for update from Client #{client_id}.")
+                except Exception as e:
+                    print(f"Task '{self.task_id}': Error requesting update from Client #{client_id}: {e}")
+            else:
+                print(f"INFO: Task '{self.task_id}': Client #{client_id} disconnected before update could be requested.")
+        
+        # 4. Aggregate and Update
+        updates = self.updates_for_round.get(round_num, [])
+        if updates:
+            # print(f"Task '{self.task_id}': Aggregating {len(updates)} updates...")
+            avg_delta = await asyncio.to_thread(aggregate_and_decrypt_tenseal, manager_instance.context, updates, len(updates))
+            if avg_delta:
+                self._apply_update(avg_delta)
+                metric_val = self._evaluate_and_log(round_num, selected_clients)
+                manager_instance.token_manager.reward_clients(selected_clients, manager_instance.REWARD_AMOUNT)
+                self.ledger.add_round_to_ledger(round_num, selected_clients, hash_model_state(self.global_model), metric_val)
+        else:
+            print(f"Task '{self.task_id}': No valid updates received for round {round_num}. Skipping model update.")
+            
+        # 5. Cleanup
+        for state_dict in [self.clients_ready_for_round, self.update_received_event_for_round, self.updates_for_round]:
+            if round_num in state_dict:
+                del state_dict[round_num]
+        
+        self.status = TaskStatus.IDLE
+        if self.is_complete():
+            self.status = TaskStatus.COMPLETED
+            print(f"\n")
+            task_log(self.task_id, "--- All Rounds Complete ---")
+            if self.csv_file: self.csv_file.close()
+
+    def _create_client_config(self):
+        # This is the same logic as before, just encapsulated
+        return {
+            # Environment and Data Partitioning
+            "data_root": self.config['data_root'],
+            "num_clients": self.config['num_clients'],
+            
+            # --- ADD THIS LINE ---
+            "nasa_data_folder": self.config.get('nasa_data_folder'),
+            # ---------------------
+            
+            # Task identifiers
+            "dataset_name": self.config['dataset_name'],
+            "model_name": self.config['model_name'],
+            
+            # Training Hyperparameters
+            "local_epochs": self.config['local_epochs'],
+            "learning_rate": self.config['learning_rate'],
+            "optimizer": self.config['optimizer'],
+            "batch_size": self.config['batch_size'],
+            "weight_decay": self.config.get('weight_decay', 0),
+            "lr_scheduler_step_size": self.config.get('lr_scheduler_step_size', 100),
+            "lr_scheduler_gamma": self.config.get('lr_scheduler_gamma', 1.0),
+            
+            # Privacy and Security Parameters
+            "privacy_profile": self.privacy_profile,
+            "encrypted_layers": self.config.get('encrypted_layers'),
+            "dp_noise_multiplier": self.config.get('dp_noise_multiplier'),
+            "dp_max_grad_norm": self.config.get('dp_max_grad_norm'),
+            "delta": self.config.get('delta'),
+            
+            # Model architecture (if needed by client)
+            "num_features": self.config.get('num_features'),
+            "num_classes": self.config.get('num_classes'),
+            "sequence_length": self.config.get('sequence_length'),
+            "lstm_hidden_dim": self.config.get('lstm_hidden_dim'),
+            "lstm_n_layers": self.config.get('lstm_n_layers'),
+            "lstm_drop_prob": self.config.get('lstm_drop_prob'),
+            
+            # Environment
+            "device": str(self.config['device']),
+            "metric": self.config.get('metric')
+        }
+
+    def _apply_update(self, avg_delta):
+        # This is the FedAdam logic, encapsulated
+        self.server_adam_step += 1
+        beta1, beta2, eps, server_lr = 0.9, 0.999, 1e-8, 0.05
+        current_dict = self.global_model.state_dict()
+        new_dict = OrderedDict()
+
+        for key, param in self.global_model.named_parameters():
+            delta = avg_delta.get(key, torch.zeros_like(param)).to(param.device)
+            grad = -delta
+
+            self.server_adam_m[key] = beta1 * self.server_adam_m[key] + (1 - beta1) * grad
+            self.server_adam_v[key] = beta2 * self.server_adam_v[key] + (1 - beta2) * (grad ** 2)
+
+            m_hat = self.server_adam_m[key] / (1 - beta1 ** self.server_adam_step)
+            v_hat = self.server_adam_v[key] / (1 - beta2 ** self.server_adam_step)
+
+            update_step = server_lr * m_hat / (torch.sqrt(v_hat) + eps)
+            new_dict[key] = current_dict[key] - update_step
+
+        self.global_model.load_state_dict(new_dict)
+
+    def _evaluate_and_log(self, round_num, selected_clients):
+        metric_val, _ = evaluate_global_model(self.global_model, self.test_loader, self.config['device'], self.config['metric'])
+        metric_name = self.config['metric'].upper()
+        metric_unit = "cycles" if metric_name == "RMSE" else "%"
+        # Use the new logger
+        task_log(self.task_id, f"--- Round {round_num} Complete --- {metric_name}: {metric_val:.2f} {metric_unit} ---")
+        self.metric_history.append(metric_val)
+        self.csv_writer.writerow([round_num, metric_val, self.privacy_profile])
+        self.csv_file.flush()
+        return metric_val
+
+    
+    async def _wait_for_clients_ready(self, round_num, num_expected):
+        while len(self.clients_ready_for_round.get(round_num, [])) < num_expected:
+            await asyncio.sleep(1)
+
 
 class ServerManager:
     """Global server state manager, holding all tasks and shared resources."""
     def __init__(self):
-        self.tasks: Dict[str, FederationTask] = {}
         self.connected_clients: Dict[int, WebSocket] = {}
         
-        # Shared resources
+        # 1. Centralized data prep happens once when the manager is created.
+        self.data_manager = DataManager(['arrhythmia', 'nasa_battery'], get_config)
+        
+        # 2. Create the tasks, passing the now-existing data_manager instance to them.
+        self.tasks: Dict[str, FederationTask] = {
+            "arrhythmia": FederationTask("arrhythmia", "she_dp", self.data_manager),
+            "nasa_battery": FederationTask("nasa_battery", "she", self.data_manager)
+        }
+        
+        # 3. Initialize other shared resources
         token_file = os.path.join(get_config('arrhythmia')['results_dir'], 'token_balances.json')
         self.token_manager = TokenManager(storage_path=token_file)
         self.MINIMUM_STAKE = 50.0
@@ -97,174 +283,31 @@ class ServerManager:
         self.context.generate_galois_keys()
         self.context.global_scale = 2**48
 
-    def add_task(self, task: FederationTask):
-        self.tasks[task.task_id] = task
-
 manager = ServerManager()
-manager.add_task(FederationTask(task_id="arrhythmia", privacy_profile="she_dp"))
-manager.add_task(FederationTask(task_id="nasa_battery", privacy_profile="she"))
 
 async def task_orchestrator_loop(task_id: str):
     task = manager.tasks[task_id]
+    
+    # --- FIX: STAGGERED STARTUP ---
+    startup_delay = random.uniform(1.0, 5.0)
+    await asyncio.sleep(startup_delay)
+    
+    # Use the new logger
+    task_log(task_id, "Orchestrator started.")
+    initial_metric, _ = evaluate_global_model(task.global_model, task.test_loader, task.config['device'], task.config['metric'])
     metric_name = task.config['metric'].upper()
     metric_unit = "cycles" if metric_name == "RMSE" else "%"
-
-    print(f"--- Orchestrator for task '{task_id}' started. ---")
-    initial_metric, _ = evaluate_global_model(task.global_model, task.test_loader, task.config['device'], task.config['metric'])
-    print(f"Task '{task_id}' Initial Global Model {metric_name}: {initial_metric:.2f} {metric_unit}")
+    task_log(task_id, f"Initial Global Model {metric_name}: {initial_metric:.2f} {metric_unit}")
+    
     task.metric_history.append(initial_metric)
     task.csv_writer.writerow([0, initial_metric, task.privacy_profile])
     task.csv_file.flush()
+    task.status = TaskStatus.IDLE
 
-    while task.current_round < task.config['num_rounds']:
-        await asyncio.sleep(5) # Stagger tasks
-        task.current_round += 1
-        round_num = task.current_round
-        
-        print(f"\n--- Task '{task_id}' | Round {round_num}/{task.config['num_rounds']} ---")
-        
-        connected_ids = list(manager.connected_clients.keys())
-        eligible_clients = [cid for cid in connected_ids if manager.token_manager.has_sufficient_stake(cid, manager.MINIMUM_STAKE)]
-        
-        if len(eligible_clients) < task.config['clients_per_round']:
-            print(f"Task '{task_id}': Waiting for more eligible clients... Have {len(eligible_clients)}/{task.config['clients_per_round']}.")
-            await asyncio.sleep(10)
-            task.current_round -=1 # Retry this round number
-            continue
-
-        selected_clients = random.sample(eligible_clients, task.config['clients_per_round'])
-        
-        task.updates_for_round[round_num] = []
-        task.clients_ready_for_round[round_num] = []
-        task.update_received_event_for_round[round_num] = asyncio.Event()
-
-        serialized_model = serialize_model(task.global_model)
-        client_config = {
-            # Environment and Data Partitioning
-            "data_root": task.config['data_root'],
-            "num_clients": task.config['num_clients'],
-            
-            # --- ADD THIS LINE ---
-            "nasa_data_folder": task.config.get('nasa_data_folder'),
-            # ---------------------
-
-            # Task identifiers
-            "dataset_name": task.config['dataset_name'],
-            "model_name": task.config['model_name'],
-            
-            # Training Hyperparameters
-            "local_epochs": task.config['local_epochs'],
-            "learning_rate": task.config['learning_rate'],
-            "optimizer": task.config['optimizer'],
-            "batch_size": task.config['batch_size'],
-            "weight_decay": task.config.get('weight_decay', 0),
-            "lr_scheduler_step_size": task.config.get('lr_scheduler_step_size', 100),
-            "lr_scheduler_gamma": task.config.get('lr_scheduler_gamma', 1.0),
-            
-            # Privacy and Security Parameters
-            "privacy_profile": task.privacy_profile,
-            "encrypted_layers": task.config.get('encrypted_layers'),
-            "dp_noise_multiplier": task.config.get('dp_noise_multiplier'),
-            "dp_max_grad_norm": task.config.get('dp_max_grad_norm'),
-            "delta": task.config.get('delta'),
-            
-            # Model architecture (if needed by client)
-            "num_features": task.config.get('num_features'),
-            "num_classes": task.config.get('num_classes'),
-            "sequence_length": task.config.get('sequence_length'),
-            "lstm_hidden_dim": task.config.get('lstm_hidden_dim'),
-            "lstm_n_layers": task.config.get('lstm_n_layers'),
-            "lstm_drop_prob": task.config.get('lstm_drop_prob'),
-            
-            # Environment
-            "device": str(task.config['device']),
-            "metric": task.config.get('metric')
-        }
-        
-        message = {
-            "type": "START_TRAINING",
-            "payload": {
-                "task_id": task_id,
-                "round": round_num,
-                "model_state_dict": serialized_model,
-                "config": client_config # Use the clean, serializable config
-            }
-        }
-        for client_id in selected_clients:
-            await manager.connected_clients[client_id].send_text(json.dumps(message))
-
-        try:
-            # The timeout for waiting for clients to be ready
-            await asyncio.wait_for(wait_for_clients_ready(task_id, round_num, len(selected_clients)), timeout=120.0)
-        except asyncio.TimeoutError: 
-            print(f"Task '{task_id}' Round {round_num} timed out waiting for clients to report completion.")
-
-        ready_clients = task.clients_ready_for_round.get(round_num, [])
-        
-        # --- DEFINITIVE FIX: CHECK FOR CONNECTION BEFORE SENDING ---
-        for client_id in ready_clients:
-            # If the client disconnected after being selected, they won't be in the manager anymore.
-            if client_id in manager.connected_clients:
-                try:
-                    task.update_received_event_for_round[round_num].clear()
-                    await manager.connected_clients[client_id].send_text(json.dumps({
-                        "type": "REQUEST_UPDATE", 
-                        "payload": {"task_id": task_id, "round": round_num}
-                    }))
-                    await asyncio.wait_for(task.update_received_event_for_round[round_num].wait(), timeout=90.0)
-                except asyncio.TimeoutError: 
-                    print(f"Task '{task_id}': Timed out waiting for update from Client #{client_id}.")
-                except Exception as e:
-                    print(f"Task '{task_id}': Error requesting update from Client #{client_id}: {e}")
-            else:
-                # This client disconnected during training. Log it and move on.
-                print(f"INFO: Task '{task_id}': Client #{client_id} disconnected before update could be requested.")
-        
-        updates = task.updates_for_round.get(round_num, [])
-        if updates:
-            print(f"Task '{task_id}': Aggregating {len(updates)} updates...")
-            avg_delta = await asyncio.to_thread(aggregate_and_decrypt_tenseal, manager.context, updates, len(updates))
-            
-            if avg_delta:
-                # Apply update using FedAdam
-                task.server_adam_step += 1
-                beta1, beta2, eps, server_lr = 0.9, 0.999, 1e-8, 0.05
-                current_dict = task.global_model.state_dict()
-                new_dict = OrderedDict()
-                for key, param in task.global_model.named_parameters():
-                    delta = avg_delta.get(key, torch.zeros_like(param)).to(param.device)
-                    grad = -delta
-                    task.server_adam_m[key] = beta1 * task.server_adam_m[key] + (1 - beta1) * grad
-                    task.server_adam_v[key] = beta2 * task.server_adam_v[key] + (1 - beta2) * (grad ** 2)
-                    m_hat = task.server_adam_m[key] / (1 - beta1 ** task.server_adam_step)
-                    v_hat = task.server_adam_v[key] / (1 - beta2 ** task.server_adam_step)
-                    update_step = server_lr * m_hat / (torch.sqrt(v_hat) + eps)
-                    new_dict[key] = current_dict[key] - update_step
-                task.global_model.load_state_dict(new_dict)
-                
-                # Evaluate and log
-                metric_val, _ = evaluate_global_model(task.global_model, task.test_loader, task.config['device'], task.config['metric'])
-                print(f"--- Task '{task_id}' Round {round_num} Complete --- {metric_name}: {metric_val:.2f} {metric_unit} ---")
-                
-                manager.token_manager.reward_clients(selected_clients, manager.REWARD_AMOUNT)
-                task.metric_history.append(metric_val)
-                task.csv_writer.writerow([round_num, metric_val, task.privacy_profile])
-                task.csv_file.flush()
-                model_hash = hash_model_state(task.global_model)
-                task.ledger.add_round_to_ledger(round_num, selected_clients, model_hash, metric_val)
-
-        # Cleanup
-        for key in [task.clients_ready_for_round, task.update_received_event_for_round, task.updates_for_round]:
-            if round_num in key: del key[round_num]
-
-    print(f"\n--- Task '{task_id}' All Rounds Complete ---")
-    if task.csv_file: task.csv_file.close()
-
-async def wait_for_clients_ready(task_id: str, round_num: int, num_expected: int):
-    task = manager.tasks[task_id]
-    while len(task.clients_ready_for_round.get(round_num, [])) < num_expected:
-        await asyncio.sleep(1)
-
+    while not task.is_complete():
+        await task.execute_round(manager)
+        await asyncio.sleep(1) # Small delay between rounds
+    
 @app.on_event("startup")
 async def startup_event():
     for task_id in manager.tasks:
@@ -315,22 +358,28 @@ async def websocket_endpoint(websocket: WebSocket, client_id: int):
         if client_id in manager.connected_clients:
             del manager.connected_clients[client_id]
 
-# --- NEW AND UPDATED API ENDPOINTS ---
-@app.get("/tasks")
-async def get_tasks():
-    """Lists all available federated learning tasks and their status."""
-    response = {}
+@app.get("/status")
+async def get_federation_status():
+    """Provides a complete real-time snapshot of the entire federation."""
+    task_statuses = {}
     for task_id, task in manager.tasks.items():
-        response[task_id] = {
+        task_statuses[task_id] = {
             "task_id": task_id,
+            "status": task.status,
             "privacy_profile": task.privacy_profile,
             "current_round": task.current_round,
             "total_rounds": task.config['num_rounds'],
             "metric": task.config['metric'],
-            "latest_metric_value": task.metric_history[-1] if task.metric_history else None,
-            "is_running": task.current_round < task.config['num_rounds']
+            "metric_history": task.metric_history # For live plotting
         }
-    return response
+    
+    return {
+        "network_info": {
+            "connected_clients_count": len(manager.connected_clients),
+            "connected_client_ids": list(manager.connected_clients.keys())
+        },
+        "tasks": task_statuses
+    }
 
 @app.get("/tasks/{task_id}/ledger")
 async def get_task_ledger(task_id: str):

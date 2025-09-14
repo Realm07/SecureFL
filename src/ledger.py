@@ -61,7 +61,7 @@ class FederationLedger:
         """
         A convenience method to format round data and add it as a new block.
         """
-        print(f"--- Recording round {round_number} in Federation Ledger ---")
+        # print(f"--- Recording round {round_number} in Federation Ledger ---")
         round_data = {
             'round_number': round_number,
             'participants': sorted(participants), 

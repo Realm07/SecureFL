@@ -61,7 +61,7 @@ class TokenManager:
 
     def reward_clients(self, client_ids: list[int], reward_amount: float):
         """Adds a reward amount to the balance of each participating client."""
-        print(f"--- Rewarding {len(client_ids)} clients with {reward_amount} tokens each ---")
+        # print(f"--- Rewarding {len(client_ids)} clients with {reward_amount} tokens each ---")
         for client_id in client_ids:
             if client_id in self.accounts:
                 self.accounts[client_id]["balance"] += reward_amount
