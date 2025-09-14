@@ -1,5 +1,5 @@
 import copy
-import torch
+from .fl_logic import federated_average_plaintext
 from torch.utils.data import DataLoader
 import random
 import time

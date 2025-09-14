@@ -1,4 +1,3 @@
-# src/config.py
 
 import torch
 import os

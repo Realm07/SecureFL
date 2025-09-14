@@ -106,10 +106,8 @@ def train_local_client_secure(model, dataloader, config, context, slot_count):
 
         print(f"  Local training finished ({(time.time() - train_start):.2f}s).")
         
-        # --- START OF DEFINITIVE FIX ---
         final_state_dict_raw = local_model.cpu().state_dict()
         
-        # Create a new, unwrapped state dict if the model was wrapped by Opacus
         final_state_dict = OrderedDict()
         for key, value in final_state_dict_raw.items():
             if key.startswith('_module.'):
@@ -118,11 +116,9 @@ def train_local_client_secure(model, dataloader, config, context, slot_count):
             else:
                 final_state_dict[key] = value
 
-        # Now, both initial_state_dict and final_state_dict have matching keys.
         weight_delta = OrderedDict()
         for key in final_state_dict:
             weight_delta[key] = final_state_dict[key] - initial_state_dict[key]
-        # --- END OF DEFINITIVE FIX ---
 
         encrypted_layers = None
         if 'she' in privacy_profile:

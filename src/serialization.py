@@ -1,5 +1,3 @@
-# src/serialization.py
-
 import torch
 import io
 import base64
@@ -41,7 +39,7 @@ def deserialize_model_update(json_str):
             buffer = io.BytesIO(base64.b64decode(b64_str))
             update['plaintext_params'][key] = torch.load(buffer)
             
-    # --- NEW: Handle encrypted bundle by decoding the Base64 strings back to bytes ---
+    # Handle encrypted bundle by decoding the Base64 strings back to bytes
     if 'encrypted_bundle' in update and update['encrypted_bundle']:
         update['encrypted_bundle']['encrypted_batches'] = [
             base64.b64decode(b64_str)

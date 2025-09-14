@@ -42,7 +42,6 @@ def hash_model_state(model: torch.nn.Module) -> str:
 
 class ServerState:
     def __init__(self):
-        # Using she_dp for demonstration of the fix
         self.privacy_profile = "she" 
         print(f"INFO: Initializing server with Privacy Profile: {self.privacy_profile.upper()}")
         
@@ -64,7 +63,6 @@ class ServerState:
             self.config['local_epochs'] = 3 # Can be lower for non-DP
         elif self.privacy_profile == "she_dp":
             self.config['encrypted_layers'] = principled_she_layers
-            # --- FIX 2: ADJUST DP HYPERPARAMETERS ---
             # A low noise multiplier is fine, but the grad norm was too restrictive.
             # Increasing it allows more of the gradient signal to be preserved before noise is added.
             self.config['dp_noise_multiplier'] = 0.4 
@@ -73,8 +71,7 @@ class ServerState:
 
         self.config['num_rounds'] = 50
         
-        # --- FIX 1: INCREASE LOCAL EPOCHS FOR DP ---
-        # This is the most critical fix. DP requires a stronger signal from each client
+        # DP requires a stronger signal from each client
         # to overcome the added noise. 1 epoch is not enough.
         self.config['local_epochs'] = 5
 
@@ -91,7 +88,7 @@ class ServerState:
         self.global_model = get_model(self.config)
         self.test_loader = torch.utils.data.DataLoader(self.testset, batch_size=1024)
         
-        # Using a robust server-side Adam optimizer
+        # Using a server-side Adam optimizer
         self.server_adam_m = {name: torch.zeros_like(param) for name, param in self.global_model.named_parameters()}
         self.server_adam_v = {name: torch.zeros_like(param) for name, param in self.global_model.named_parameters()}
         self.server_adam_step = 0
@@ -200,7 +197,6 @@ async def training_orchestrator():
             await asyncio.sleep(10)
             continue
         
-        # Select from the eligible pool
         selected_clients = random.sample(eligible_clients, state.config['clients_per_round'])
         
         state.updates_for_round[round_num] = []
@@ -245,18 +241,12 @@ async def training_orchestrator():
             )
             
             if avg_delta_dict:
-                # --- FIX 3: REMOVE REDUNDANT KEY CLEANING ---
-                # The client (`fl_logic.py`) is now solely responsible for stripping the '_module.' 
-                # prefix from Opacus. The server should expect a clean delta, simplifying its logic.
-                # The old block that stripped the prefix here has been removed.
-
+            
                 state.server_adam_step += 1
                 beta1, beta2, eps, server_lr = 0.9, 0.999, 1e-8, 0.01
                 current_global_dict, new_global_dict = state.global_model.state_dict(), OrderedDict()
 
                 for key, param in state.global_model.named_parameters():
-                    # The `key` here is clean (e.g., 'layer_2.weight').
-                    # `avg_delta_dict` from the aggregation also has clean keys.
                     delta = avg_delta_dict.get(key, torch.zeros_like(param))
                     delta = delta.to(param.device)
                     grad = -delta
@@ -311,9 +301,7 @@ def process_full_update(json_string: str, round_num: int):
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: int):
     await manager.connect(websocket, client_id)
-    # --- TOKENOMICS: REGISTER CLIENT ON CONNECT ---
     state.token_manager.register_client(client_id)
-    # ---------------------------------------------
     print(f"Client #{client_id} connected.")
     try:
         while True:

@@ -1,5 +1,3 @@
-# src/he_tenseal.py
-
 import tenseal as ts
 from collections import OrderedDict
 import torch
@@ -75,11 +73,8 @@ def aggregate_and_decrypt_tenseal(context, hybrid_updates, num_clients):
             param_slice = decrypted_sum_params[info['start']:info['end']]
             sum_tensor = torch.tensor(param_slice, dtype=torch.float32).view(info['shape'])
             
-            # --- MATHEMATICALLY CORRECT CALCULATION ---
             # avg_delta = (Sum(delta * scale) / scale) / count
             avg_tensor = (sum_tensor / context.global_scale) / len(encrypted_bundles)
-            # -------------------------------------------
-
             decrypted_avg_encrypted_dict[key] = avg_tensor
 
     # Step 3: Combine the plaintext and decrypted parts into a single delta dictionary

@@ -26,7 +26,6 @@ def main(dataset_name):
     RESULTS_DIR = config['results_dir']
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    # --- 1. Load and Prepare Datasets ---
     try:
         if dataset_name == 'arrhythmia':
             trainset, testset, X_test_original, y_test_original = get_datasets(config)
@@ -54,8 +53,6 @@ def main(dataset_name):
         return
 
     # --- 2. Run All Three Simulation Benchmarks ---
-
-    # --- NEW: Run all four simulations ---
     initial_model = get_model(config)
     
     # Simulation 1: Plaintext
@@ -80,7 +77,6 @@ def main(dataset_name):
         copy.deepcopy(initial_model), trainset, test_loader, config, privacy_profile="she_dp"
     )
 
-    # --- NEW: Save comprehensive results ---
     RESULTS_PATH = os.path.join(RESULTS_DIR, f"training_results_{dataset_name}.json")
     print(f"\nSaving comprehensive training benchmark results to: {RESULTS_PATH}")
 
