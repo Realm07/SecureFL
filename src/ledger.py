@@ -1,5 +1,3 @@
-# src/ledger.py
-
 import hashlib
 import json
 from time import time
@@ -23,7 +21,7 @@ class FederationLedger:
                 with open(self.storage_path, 'r') as f:
                     self.chain = json.load(f)
                 print("INFO: Federation Ledger loaded from disk.")
-                if not self.chain: # Handle case of empty file
+                if not self.chain:
                     self._create_genesis_block()
             except (json.JSONDecodeError, IOError) as e:
                 print(f"WARNING: Could not load ledger file: {e}. Creating a new one.")
@@ -55,7 +53,6 @@ class FederationLedger:
             'previous_hash': previous_hash,
         }
 
-        # The hash is calculated on the full block content
         block['hash'] = self.hash(block)
         self.chain.append(block)
         return block
@@ -67,7 +64,7 @@ class FederationLedger:
         print(f"--- Recording round {round_number} in Federation Ledger ---")
         round_data = {
             'round_number': round_number,
-            'participants': sorted(participants), # Sort for consistency
+            'participants': sorted(participants), 
             'global_model_hash': global_model_hash,
             'global_model_accuracy': accuracy
         }
@@ -75,8 +72,7 @@ class FederationLedger:
         last_block = self.last_block
         previous_hash = self.hash(last_block)
         block = self.new_block(round_data, previous_hash)
-        
-        # Persist the updated chain to disk
+
         self.save_chain()
         
         return block
@@ -94,7 +90,6 @@ class FederationLedger:
         :param block: The block to hash.
         :return: The hash digest as a hex string.
         """
-        # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
         block_string = json.dumps(block, sort_keys=True).encode()
         return hashlib.sha256(block_string).hexdigest()
 

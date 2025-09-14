@@ -79,7 +79,7 @@ class TokenManager:
             if staked_amount > 0:
                 print(f"--- Slashing! Client #{client_id} forfeits {staked_amount} staked tokens. ---")
                 self.accounts[client_id]["stake"] = 0
-                # Optional: You could also apply a balance penalty here
+                # Todo: apply a balance penalty here
                 self.save_accounts()
                 return True
         return False

@@ -30,7 +30,6 @@ async def client_logic(client_id):
     my_dataloader = DataLoader(my_dataset, batch_size=base_config['batch_size'], shuffle=True)
     print(f"Client #{client_id}: Data loaded. {len(my_dataset)} samples.")
 
-    # --- FINAL HE PARAMETERS FOR HIGH PRECISION ---
     POLY_MOD_DEGREE = 16384
     context = ts.context(
         ts.SCHEME_TYPE.CKKS, 
@@ -38,8 +37,7 @@ async def client_logic(client_id):
         coeff_mod_bit_sizes=[60, 48, 48, 60]
     )
     context.generate_galois_keys()
-    context.global_scale = 2**48 # <-- Increased scale for higher precision
-
+    context.global_scale = 2**48 
     slot_count = POLY_MOD_DEGREE // 2
 
     MAX_RETRY_DELAY = 60.0
