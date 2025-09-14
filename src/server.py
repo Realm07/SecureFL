@@ -144,6 +144,10 @@ async def task_orchestrator_loop(task_id: str):
             "data_root": task.config['data_root'],
             "num_clients": task.config['num_clients'],
             
+            # --- ADD THIS LINE ---
+            "nasa_data_folder": task.config.get('nasa_data_folder'),
+            # ---------------------
+
             # Task identifiers
             "dataset_name": task.config['dataset_name'],
             "model_name": task.config['model_name'],
@@ -154,11 +158,8 @@ async def task_orchestrator_loop(task_id: str):
             "optimizer": task.config['optimizer'],
             "batch_size": task.config['batch_size'],
             "weight_decay": task.config.get('weight_decay', 0),
-
-            # --- DEFINITIVE FIX: PROVIDE DEFAULTS FOR SCHEDULER PARAMS ---
             "lr_scheduler_step_size": task.config.get('lr_scheduler_step_size', 100),
             "lr_scheduler_gamma": task.config.get('lr_scheduler_gamma', 1.0),
-            # ----------------------------------------------------------------
             
             # Privacy and Security Parameters
             "privacy_profile": task.privacy_profile,
@@ -173,11 +174,11 @@ async def task_orchestrator_loop(task_id: str):
             "sequence_length": task.config.get('sequence_length'),
             "lstm_hidden_dim": task.config.get('lstm_hidden_dim'),
             "lstm_n_layers": task.config.get('lstm_n_layers'),
-            "lstm_drop_prob": task.config.get('lstm_drop_prob'), # Pass the new dropout prob
+            "lstm_drop_prob": task.config.get('lstm_drop_prob'),
             
             # Environment
             "device": str(task.config['device']),
-            "metric": task.config.get('metric') # Pass the metric for loss function selection
+            "metric": task.config.get('metric')
         }
         
         message = {
