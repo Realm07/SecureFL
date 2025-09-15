@@ -1,24 +1,18 @@
+// In controller.js, this file requires significant changes to its state management.
+// Replace the entire file with this new version.
+
 document.addEventListener('DOMContentLoaded', () => {
-    const API_BASE_URL = window.location.origin; // This will be the ngrok URL
+    const API_BASE_URL = window.location.origin;
     const state = {
         clientId: null,
         sessionToken: null,
-        currentTask: null,
-        currentStep: 'login',
         isAutoLooping: false,
+        statusPollInterval: null,
     };
 
     // --- DOM ELEMENT REFERENCES ---
-    const screens = {
-        login: document.getElementById('login-screen'),
-        waiting: document.getElementById('waiting-screen'),
-        control: document.getElementById('control-screen'),
-    };
-    const steps = {
-        data: document.getElementById('step-data'),
-        actions: document.getElementById('step-actions'),
-        rewarded: document.getElementById('step-rewarded'),
-    };
+    const screens = { login: document.getElementById('login-screen'), waiting: document.getElementById('waiting-screen'), control: document.getElementById('control-screen') };
+    const steps = { data: document.getElementById('step-data'), actions: document.getElementById('step-actions'), rewarded: document.getElementById('step-rewarded') };
     const connectionStatus = document.getElementById('connection-status');
     const slotContainer = document.getElementById('slot-container');
     const dataGrid = document.getElementById('data-grid');
@@ -46,12 +40,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = { method, headers: { 'Content-Type': 'application/json' } };
             if (body) options.body = JSON.stringify(body);
             const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+            updateConnectionStatus(true);
             if (!response.ok) {
                 const err = await response.json();
                 throw new Error(err.error || 'API request failed');
             }
-            updateConnectionStatus(true);
-            return await response.json();
+            return response.status === 200 ? await response.json() : {};
         } catch (error) {
             updateConnectionStatus(false);
             console.error(`API Error on ${endpoint}:`, error);
@@ -72,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.onclick = () => joinFederation(slotId);
                 slotContainer.appendChild(btn);
             });
-        } catch (e) { /* Error handled in apiCall */ }
+        } catch (e) { /* Handled in apiCall */ }
     }
 
     async function joinFederation(clientId) {
@@ -82,21 +76,48 @@ document.addEventListener('DOMContentLoaded', () => {
             state.sessionToken = data.session_token;
             document.getElementById('client-id-display').textContent = state.clientId;
             document.getElementById('client-id-display-2').textContent = state.clientId;
-            
-            // This is a simplified simulation of waiting for a task.
-            // In a real system, you'd poll a status endpoint.
-            showScreen('control');
-            setupControlScreenForTask({ name: 'Arrhythmia Detection' }); // Assume a default task
+            showScreen('waiting');
+            startStatusPolling();
         } catch (e) {
             document.getElementById('login-status').textContent = `Error: ${e.message}`;
         }
     }
+    
+    async function pollStatus() {
+        if (!state.clientId || !state.sessionToken) return;
+        try {
+            const status = await apiCall('/controller/status', 'POST', {
+                client_id: state.clientId,
+                session_token: state.sessionToken
+            });
 
-    function setupControlScreenForTask(task) {
-        state.currentTask = task;
-        document.getElementById('task-title').textContent = `Task: ${task.name}`;
+            if (status.current_step === 'control_panel') {
+                stopStatusPolling();
+                showScreen('control');
+                setupControlScreenForTask(status.task_info);
+            }
+        } catch (error) {
+            console.error("Status poll failed:", error);
+            stopStatusPolling();
+        }
+    }
+
+    function startStatusPolling() {
+        if (state.statusPollInterval) clearInterval(state.statusPollInterval);
+        state.statusPollInterval = setInterval(pollStatus, 3000);
+    }
+
+    function stopStatusPolling() {
+        if (state.statusPollInterval) clearInterval(state.statusPollInterval);
+        state.statusPollInterval = null;
+    }
+
+    function setupControlScreenForTask(taskInfo) {
+        document.getElementById('task-title').textContent = `Task: ${taskInfo.task_id}`;
         resetActionButtons();
         populateDataGrid();
+        const dpButton = document.querySelector('.action-btn[data-action="dp"]');
+        dpButton.style.display = taskInfo.privacy_profile.includes('dp') ? 'flex' : 'none';
         showStep('data');
     }
 
@@ -108,8 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
             snippet.textContent = `[${(Math.random()*2-1).toFixed(2)}, ...]`;
             snippet.onclick = () => {
                 snippet.classList.toggle('selected');
-                const selectedCount = dataGrid.querySelectorAll('.selected').length;
-                confirmDataBtn.disabled = selectedCount === 0;
+                confirmDataBtn.disabled = dataGrid.querySelectorAll('.selected').length === 0;
             };
             dataGrid.appendChild(snippet);
         }
@@ -121,52 +141,66 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function resetActionButtons() {
-        actionBtns.forEach(btn => {
+        actionBtns.forEach((btn, index) => {
             btn.classList.remove('enabled', 'completed');
-            btn.disabled = true;
+            btn.disabled = false;
+            const action = btn.dataset.action;
+            const icon = btn.querySelector('i').className;
+            const number = btn.querySelector('span').textContent;
+            const actionText = action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            btn.innerHTML = `<span>${number}</span> <i class="${icon}"></i> ${actionText}`;
         });
     }
-
+    
     actionBtns.forEach((btn, index) => {
-        btn.addEventListener('click', async () => {
-            if (!btn.classList.contains('enabled')) return;
-            
-            const action = btn.dataset.action;
-            btn.innerHTML = `<span>${index+1}.</span> <i class="fas fa-spinner fa-spin"></i> Processing...`;
-            
-            // SIMULATE ACTION
-            await new Promise(res => setTimeout(res, 1500)); 
-            
-            btn.classList.remove('enabled');
-            btn.classList.add('completed');
-            btn.innerHTML = `<span>${index+1}.</span> <i class="fas fa-check"></i> ${action.charAt(0).toUpperCase() + action.slice(1)} Complete`;
+    btn.addEventListener('click', async () => {
+        if (!btn.classList.contains('enabled')) return;
+        
+        const action = btn.dataset.action;
+        const originalHTML = btn.innerHTML;
+        btn.classList.remove('enabled');
+        btn.innerHTML = `<span>${index+1}.</span> <i class="fas fa-spinner fa-spin"></i> Processing...`;
 
-            // Enable next button
-            if (index < actionBtns.length - 1) {
-                actionBtns[index + 1].classList.add('enabled');
-            } else {
-                // Last action was 'send'
+        try {
+            // The server now tells us exactly what the next step is
+            const response = await apiCall('/controller/action', 'POST', {
+                client_id: state.clientId,
+                session_token: state.sessionToken,
+                action: action
+            });
+            
+            await new Promise(res => setTimeout(res, 750 + Math.random() * 500));
+            
+            btn.classList.add('completed');
+            btn.innerHTML = `<span>${index+1}.</span> <i class="fas fa-check"></i> ${action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Complete`;
+
+            // --- NEW LOGIC ---
+            // Use the server's response to determine what to do next
+            if (response.next_step === "rewarded") {
                 showStep('rewarded');
+            } else {
+                // Find the next button to enable based on its data-action attribute
+                const nextAction = response.next_step.replace('actions_', ''); // e.g., "actions_train" -> "train"
+                const nextButton = document.querySelector(`.action-btn[data-action="${nextAction}"]`);
+                if (nextButton) {
+                    nextButton.classList.add('enabled');
+                }
             }
-        });
+            // --- END NEW LOGIC ---
+
+        } catch (error) {
+            alert(`Action failed: ${error.message}`);
+            btn.innerHTML = originalHTML; // Restore button on error
+            btn.classList.add('enabled');
+        }
+    });
+});
+    nextRoundBtn.addEventListener('click', () => {
+        showScreen('waiting');
+        startStatusPolling();
     });
     
-    nextRoundBtn.addEventListener('click', () => {
-        if (state.isAutoLooping) {
-            // Logic for automated loop would go here
-            alert("Starting automated client loop!");
-        }
-        showScreen('waiting');
-        // Simulate waiting and getting a new task
-        setTimeout(() => {
-            showScreen('control');
-            setupControlScreenForTask({ name: 'NASA Battery Health' });
-        }, 5000);
-    });
-
-    autoLoopToggle.addEventListener('change', (e) => {
-        state.isAutoLooping = e.target.checked;
-    });
+    autoLoopToggle.addEventListener('change', (e) => { state.isAutoLooping = e.target.checked; });
 
     // --- INITIALIZATION ---
     showScreen('login');

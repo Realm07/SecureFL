@@ -25,6 +25,7 @@ from .data_manager import DataManager
 from .ledger import FederationLedger
 from .tokenomics import TokenManager
 
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -255,16 +256,46 @@ class FederationTask:
         while len(self.clients_ready_for_round.get(round_num, [])) < num_expected:
             await asyncio.sleep(1)
 
+class ControllerClientPlaceholder:
+    """A mock WebSocket object to represent a controller client in the main list."""
+    def __init__(self, client_id):
+        self.client_id = client_id
+    async def send_text(self, message: str):
+        # When the server tries to send a message (like START_TRAINING),
+        # we intercept it and update the controller's state instead.
+        data = json.loads(message)
+        payload = data.get("payload", {})
+        session = manager.controller_manager.get_session(self.client_id)
+        if session:
+            session.current_step = "control_panel"
+            session.task_id = payload.get("task_id")
+            session.round = payload.get("round")
+            print(f"CONTROLLER: Assigned task '{session.task_id}' to client #{self.client_id}")
+
 class ControllerClient(BaseModel):
     client_id: int
     session_token: str = secrets.token_hex(16)
-    current_step: str = "login"
-    is_locked: bool = True
+    current_step: str = "waiting_for_task" # Start in waiting state
     task_id: str | None = None
     round: int | None = None
-
-
+    
 class ControllerManager:
+    def __init__(self):
+        self.sessions: Dict[int, ControllerClient] = {}
+        self.available_slots: List[int] = list(range(10, 20))
+
+    def join_session(self, client_id: int) -> ControllerClient | None:
+        if client_id in self.available_slots and self.sessions.get(client_id) is None:
+            session = ControllerClient(client_id=client_id)
+            self.sessions[client_id] = session
+            return session
+        return None
+
+    def get_session(self, client_id: int) -> ControllerClient | None:
+        return self.sessions.get(client_id)
+
+    def remove_session(self, client_id: int):
+        if client_id in self.sessions: del self.sessions[client_id]
     def __init__(self):
         # Maps a client ID to its controller session
         self.sessions: Dict[int, ControllerClient] = {}
@@ -287,7 +318,7 @@ class ControllerManager:
 
 class ServerManager:
     def __init__(self):
-        self.connected_clients: Dict[int, WebSocket] = {}
+        self.connected_clients: Dict[int, WebSocket | ControllerClientPlaceholder] = {}
         self.data_manager = DataManager(['arrhythmia', 'nasa_battery'], get_config)
         self.tasks: Dict[str, FederationTask] = {
             "arrhythmia": FederationTask("arrhythmia", "she_dp", self.data_manager),
@@ -295,13 +326,14 @@ class ServerManager:
         }
         token_file = os.path.join(get_config('arrhythmia')['results_dir'], 'token_balances.json')
         self.token_manager = TokenManager(storage_path=token_file)
+        self.controller_manager = ControllerManager()
+        self.ADMIN_SECRET = "aegis-admin-secret"
         self.MINIMUM_STAKE, self.REWARD_AMOUNT = 50.0, 10.0
         POLY_MOD_DEGREE = 16384
         self.context = ts.context(ts.SCHEME_TYPE.CKKS, POLY_MOD_DEGREE, coeff_mod_bit_sizes=[60, 48, 48, 60])
         self.context.generate_galois_keys()
         self.context.global_scale = 2**48
-        self.controller_manager = ControllerManager()
-        self.ADMIN_SECRET = "aegis-admin-secret"
+        self.PREBAKED_UPDATES_PATH = os.path.join(os.path.dirname(__file__), "prebaked_updates")
 
     async def _send_to_client_safely(self, client: WebSocket, message: str):
         try:
@@ -338,11 +370,35 @@ class JoinRequest(BaseModel):
 async def controller_join(request: JoinRequest):
     session = manager.controller_manager.join_session(request.client_id)
     if session:
-        # Also register this new client in the tokenomics system
         manager.token_manager.register_client(request.client_id)
+        # --- FIX: Add placeholder to main client list ---
+        manager.connected_clients[request.client_id] = ControllerClientPlaceholder(request.client_id)
+        print(f"CONTROLLER: Client #{request.client_id} joined via controller. Now visible on globe.")
         return {"message": "Joined successfully!", "session_token": session.session_token, "client_id": session.client_id}
     return JSONResponse(status_code=409, content={"error": "Slot is already taken or invalid."})
 
+# --- NEW: Status endpoint for the controller app to poll ---
+class SessionStatusRequest(BaseModel):
+    client_id: int
+    session_token: str
+
+@app.post("/controller/status")
+async def controller_status(request: SessionStatusRequest):
+    session = manager.controller_manager.get_session(request.client_id)
+    if not session or session.session_token != request.session_token:
+        return JSONResponse(status_code=403, content={"error": "Invalid session."})
+    
+    task_config = manager.tasks[session.task_id].config if session.task_id else {}
+    return {
+        "client_id": session.client_id,
+        "current_step": session.current_step,
+        "task_info": {
+            "task_id": session.task_id,
+            "round": session.round,
+            "dataset_name": task_config.get("dataset_name"),
+            "privacy_profile": manager.tasks[session.task_id].privacy_profile if session.task_id else None
+        }
+    }
 @app.get("/controller/slots")
 async def get_available_slots():
     active_sessions = manager.controller_manager.sessions.keys()
@@ -359,19 +415,69 @@ async def controller_action(request: ActionRequest):
     session = manager.controller_manager.get_session(request.client_id)
     if not session or session.session_token != request.session_token:
         return JSONResponse(status_code=403, content={"error": "Invalid session."})
+
+    action_handled = False
+    next_step = session.current_step
+
+    # --- NEW: Logic to inject a pre-baked update on 'send' ---
+    if request.action == "send" and session.task_id and session.round is not None:
+        try:
+            task = manager.tasks[session.task_id]
+            client_id = session.client_id
+            round_num = session.round
+
+            # 1. Load the pre-baked update file
+            update_path = os.path.join(manager.PREBAKED_UPDATES_PATH, f"prebaked_update_{client_id}.json")
+            with open(update_path, 'r') as f:
+                serialized_update = f.read()
+            
+            # 2. Deserialize it back into a TenSEAL object
+            deserialized_update = await asyncio.to_thread(deserialize_model_update, serialized_update)
+
+            # 3. Inject the update directly into the federation task's state
+            task.updates_for_round.setdefault(round_num, []).append(deserialized_update)
+            task.clients_ready_for_round.setdefault(round_num, []).append(client_id)
+            
+            print(f"CONTROLLER: Injected pre-baked update for client #{client_id} into task '{session.task_id}' round {round_num}")
+            
+            session.current_step = "rewarded"
+            next_step = "rewarded"
+            action_handled = True
+
+        except FileNotFoundError:
+            return JSONResponse(status_code=500, content={"error": f"Pre-baked update for client #{session.client_id} not found."})
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": f"Failed to inject update: {e}"})
+
+    # This part handles the cosmetic state updates for other buttons
+    if not action_handled:
+        print(f"CONTROLLER: Received action '{request.action}' for client #{request.client_id}")
+        
+        # --- COMPLETED STATE TRANSITION LOGIC ---
+        # Based on the action received, determine the next step in the UI flow.
+        # The frontend will use this 'next_step' value to unlock the next button.
+        if request.action == "confirm_data":
+            next_step = "actions_stake"
+        elif request.action == "stake":
+            next_step = "actions_train"
+        elif request.action == "train":
+            next_step = "actions_encrypt"
+        elif request.action == "encrypt":
+            # The next step depends on whether DP is enabled for this task
+            task = manager.tasks.get(session.task_id)
+            if task and "dp" in task.privacy_profile:
+                next_step = "actions_dp"
+            else:
+                # If no DP in the profile, skip directly to the send step
+                next_step = "actions_send"
+        elif request.action == "dp":
+            next_step = "actions_send"
+        
+        # Persist the new state in the session for the client
+        session.current_step = next_step
+        # --- END OF COMPLETION ---
     
-    # Here you would add logic to proxy the action to the actual client
-    # For now, we'll just log it and update the state.
-    print(f"CONTROLLER: Received action '{request.action}' for client #{request.client_id} with payload: {request.payload}")
-    
-    # Example state transition
-    if request.action == "select_data":
-        session.current_step = "ready_to_train"
-    elif request.action == "train":
-        session.current_step = "ready_to_encrypt"
-    # ... and so on
-    
-    return {"message": f"Action '{request.action}' acknowledged.", "next_step": session.current_step}
+    return {"message": f"Action '{request.action}' acknowledged.", "next_step": next_step}
 
 class AdminActionRequest(BaseModel):
     client_id: int
@@ -410,7 +516,10 @@ async def start_orchestrator(task: FederationTask):
     task.status = TaskStatus.IDLE
     await (async_orchestrator_loop(task) if task.learning_mode == 'asynchronous' else sync_orchestrator_loop(task))
 
-CLIENT_LOCATIONS = {0: {"name": "Los Angeles", "lat": 34.05, "lon": -118.24}, 1: {"name": "New York", "lat": 40.71, "lon": -74.00}, 2: {"name": "London", "lat": 51.50, "lon": -0.12}, 3: {"name": "Tokyo", "lat": 35.68, "lon": 139.69}, 4: {"name": "Sydney", "lat": -33.86, "lon": 151.20}, 5: {"name": "São Paulo", "lat": -23.55, "lon": -46.63}, 6: {"name": "Mumbai", "lat": 19.07, "lon": 72.87}, 7: {"name": "Moscow", "lat": 55.75, "lon": 37.61}, 8: {"name": "Beijing", "lat": 39.90, "lon": 116.40}, 9: {"name": "Paris", "lat": 48.85, "lon": 2.35}}
+CLIENT_LOCATIONS = {0: {"name": "Los Angeles", "lat": 34.05, "lon": -118.24}, 1: {"name": "New York", "lat": 40.71, "lon": -74.00}, 2: {"name": "London", "lat": 51.50, "lon": -0.12}, 3: {"name": "Tokyo", "lat": 35.68, "lon": 139.69}, 4: {"name": "Sydney", "lat": -33.86, "lon": 151.20}, 5: {"name": "São Paulo", "lat": -23.55, "lon": -46.63}, 6: {"name": "Mumbai", "lat": 19.07, "lon": 72.87}, 7: {"name": "Moscow", "lat": 55.75, "lon": 37.61}, 8: {"name": "Beijing", "lat": 39.90, "lon": 116.40}, 9: {"name": "Paris", "lat": 48.85, "lon": 2.35}, 10: {"name": "Bhopal", "lat": 23.2599, "lon": 77.4126},
+    11: {"name": "Singapore", "lat": 1.3521, "lon": 103.8198},
+    12: {"name": "Dubai", "lat": 25.276987, "lon": 55.296249},
+    13: {"name": "San Francisco", "lat": 37.7749, "lon": -122.4194},}
 TASK_SERVER_LOCATIONS = {"arrhythmia": {"name": "Zurich", "lat": 47.37, "lon": 8.54}, "nasa_battery": {"name": "Houston", "lat": 29.76, "lon": -95.36}}
 
 @app.on_event("startup")
