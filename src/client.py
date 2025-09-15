@@ -1,5 +1,3 @@
-# src/client.py
-
 import asyncio
 import traceback
 import websockets
@@ -17,10 +15,13 @@ from .data_loader import get_client_datasets
 from .fl_logic import train_local_client_secure
 from .serialization import serialize_model_update, deserialize_model
 
+client_data_cache = {}
+# Global websocket instance to be accessible by background tasks
+websocket_connection = None
+
 def get_client_dataloader(client_id: int, config: dict):
     dataset_name = config['dataset_name']
     cache_key = f"{client_id}_{dataset_name}"
-    
     if cache_key in client_data_cache:
         print(f"Client #{client_id}: Loading '{dataset_name}' data from cache.")
         return client_data_cache[cache_key]
@@ -29,13 +30,47 @@ def get_client_dataloader(client_id: int, config: dict):
     client_datasets = get_client_datasets(config)
     my_dataset = client_datasets[client_id]
     my_dataloader = DataLoader(my_dataset, batch_size=config['batch_size'], shuffle=True)
-    
     client_data_cache[cache_key] = my_dataloader
     print(f"Client #{client_id}: Data loaded for '{dataset_name}'. {len(my_dataset)} samples.")
     return my_dataloader
 
+async def run_training_and_send_update(client_id: int, task_id: str, payload: dict, context, slot_count):
+    """A background task to handle training without blocking the websocket."""
+    global websocket_connection
+    try:
+        print(f"\nClient #{client_id}: Received task '{task_id}' (v{payload.get('model_version', 'sync')}). Starting training...")
+        config = payload['config']
+        dataloader = get_client_dataloader(client_id, config)
+        local_model = get_model(config)
+        deserialize_model(local_model, payload['model_state_dict'])
+        
+        encrypted_update = train_local_client_secure(local_model, dataloader, config, context, slot_count)
+        
+        if encrypted_update and websocket_connection:
+            update_str = serialize_model_update(encrypted_update)
+            gc.collect()
+
+            # Determine if this is a sync or async task
+            if payload.get('model_version') is not None: # Async tasks have a model version
+                print(f"Client #{client_id}: Async training for '{task_id}' complete. Sending update.")
+                message = {"type": "ASYNC_UPDATE", "payload": {
+                    "task_id": task_id, "model_version": payload['model_version'], "update_data": update_str
+                }}
+                await websocket_connection.send(json.dumps(message))
+            else: # Sync task
+                # In sync mode, we just prepare the update and wait for the server's request
+                _pending_updates[task_id] = {"update_str": update_str, "round_num": payload['round']}
+                print(f"Client #{client_id}: Sync training for '{task_id}' complete. Notifying server.")
+                ready_message = {"type": "TRAINING_COMPLETE", "payload": {"task_id": task_id, "round": payload['round']}}
+                await websocket_connection.send(json.dumps(ready_message))
+
+    except Exception as e:
+        print(f"Client #{client_id}: ERROR during background training for '{task_id}': {e}")
+        traceback.print_exc()
+
 
 async def client_logic(client_id):
+    global websocket_connection, _pending_updates
     uri = f"ws://localhost:8000/ws/{client_id}"
     
     POLY_MOD_DEGREE = 16384
@@ -43,96 +78,49 @@ async def client_logic(client_id):
     context.generate_galois_keys()
     context.global_scale = 2**48
     slot_count = POLY_MOD_DEGREE // 2
-
-    _pending_updates = {} # task_id -> {update_str, round_num}
+    _pending_updates = {}
 
     while True:
         try:
             print(f"Client #{client_id}: Connecting...")
-            # --- FIX: Increase websocket timeouts and message size for stability ---
-            async with websockets.connect(
-                uri, 
-                max_size=2 * 1024 * 1024, # Allow larger messages (2MB)
-                ping_interval=120,       # Ping every 2 minutes
-                ping_timeout=300         # Wait up to 5 minutes for a pong response
-            ) as websocket:
-            # -----------------------------------------------------------------------
+            async with websockets.connect(uri, max_size=2 * 1024 * 1024, ping_interval=120, ping_timeout=300) as websocket:
+                websocket_connection = websocket
                 print(f"Client #{client_id}: Connected. Waiting for tasks...")
                 
                 while True: 
                     message = json.loads(await websocket.recv())
-                    msg_type = message.get("type")
-                    payload = message.get("payload", {})
+                    msg_type, payload = message.get("type"), message.get("payload", {})
                     task_id = payload.get("task_id")
 
-                    if msg_type == 'START_TRAINING':
-                        try:
-                            round_num = payload['round']
-                            round_config = payload['config']
-                            
-                            print(f"\nClient #{client_id}: Received task '{task_id}' for round {round_num}")
-                            
-                            dataloader = get_client_dataloader(client_id, round_config)
-                            
-                            local_model = get_model(round_config)
-                            deserialize_model(local_model, payload['model_state_dict'])
-                            
-                            encrypted_update = train_local_client_secure(
-                                local_model, dataloader, round_config, context, slot_count
-                            )
-                            
-                            if encrypted_update:
-                                _pending_updates[task_id] = {
-                                    "update_str": serialize_model_update(encrypted_update), # Store the JSON string directly
-                                    "round_num": round_num
-                                }
-                                gc.collect()
-                                print(f"Client #{client_id}: Task '{task_id}' training complete. Notifying server.")
-                                ready_message = {"type": "TRAINING_COMPLETE", "payload": {"task_id": task_id, "round": round_num}}
-                                await websocket.send(json.dumps(ready_message))
-                        except Exception as e:
-                            print(f"Client #{client_id}: ERROR during training for task '{task_id}': {e}")
-                            traceback.print_exc()
+                    if msg_type in ['START_TRAINING', 'NEW_GLOBAL_MODEL']:
+                        # Launch training in the background for both modes
+                        asyncio.create_task(run_training_and_send_update(client_id, task_id, payload, context, slot_count))
 
-                    elif msg_type == 'REQUEST_UPDATE':
-                        try:
-                            if task_id in _pending_updates:
-                                pending = _pending_updates[task_id]
-                                round_num = pending['round_num']
-                                print(f"Client #{client_id}: Server requested update for task '{task_id}'. Uploading...")
-                                
-                                update_str = pending['update_str']
-                                
-                                CHUNK_SIZE = 1 * 1024 * 1024
-                                total_chunks = math.ceil(len(update_str) / CHUNK_SIZE)
+                    elif msg_type == 'REQUEST_UPDATE': # Only for sync mode
+                        if task_id in _pending_updates:
+                            pending = _pending_updates[task_id]
+                            print(f"Client #{client_id}: Server requested update for '{task_id}'. Uploading...")
+                            
+                            update_str, round_num = pending['update_str'], pending['round_num']
+                            CHUNK_SIZE = 1 * 1024 * 1024
+                            total_chunks = math.ceil(len(update_str) / CHUNK_SIZE)
 
-                                await websocket.send(json.dumps({
-                                    "type": "START_UPDATE_STREAM",
-                                    "payload": {"task_id": task_id, "round": round_num, "total_chunks": total_chunks}
-                                }))
+                            await websocket.send(json.dumps({"type": "START_UPDATE_STREAM", "payload": {"task_id": task_id, "round": round_num, "total_chunks": total_chunks}}))
+                            for i in range(total_chunks):
+                                chunk_data = update_str[i * CHUNK_SIZE : (i + 1) * CHUNK_SIZE]
+                                await websocket.send(json.dumps({"type": "UPDATE_CHUNK", "payload": {"task_id": task_id, "round": round_num, "chunk_index": i, "data": chunk_data}}))
+                                await asyncio.sleep(0.01)
 
-                                for i in range(total_chunks):
-                                    chunk_data = update_str[i * CHUNK_SIZE : (i + 1) * CHUNK_SIZE]
-                                    await websocket.send(json.dumps({
-                                        "type": "UPDATE_CHUNK",
-                                        "payload": {"task_id": task_id, "round": round_num, "chunk_index": i, "data": chunk_data}
-                                    }))
-                                    await asyncio.sleep(0.01)
-
-                                print(f"Client #{client_id}: Task '{task_id}' update sent successfully.")
-                                del _pending_updates[task_id]
-                        except Exception as e:
-                            print(f"Client #{client_id}: ERROR during update sending for task '{task_id}': {e}")
+                            print(f"Client #{client_id}: Task '{task_id}' update sent successfully.")
+                            del _pending_updates[task_id]
 
         except (websockets.exceptions.ConnectionClosed, ConnectionRefusedError) as e:
             print(f"Client #{client_id}: Connection lost ({type(e).__name__}). Reconnecting...")
         except Exception as e:
             print(f"Client #{client_id}: An unexpected error occurred: {e}")
-        
-        await asyncio.sleep(5)
-
-# Add the client_data_cache definition here
-client_data_cache = {}
+        finally:
+            websocket_connection = None
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a Federated Learning Client.")
