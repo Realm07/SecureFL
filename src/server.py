@@ -337,7 +337,27 @@ async def task_orchestrator_loop(task_id: str):
         
         # Sleep AFTER the round is complete to pace the tasks.
         await asyncio.sleep(5)
-    
+
+
+CLIENT_LOCATIONS = {
+    0: {"name": "Los Angeles", "lat": 34.05, "lon": -118.24},
+    1: {"name": "New York",    "lat": 40.71, "lon": -74.00},
+    2: {"name": "London",      "lat": 51.50, "lon": -0.12},
+    3: {"name": "Tokyo",       "lat": 35.68, "lon": 139.69},
+    4: {"name": "Sydney",      "lat": -33.86, "lon": 151.20},
+    # Add more if you run more than 5 clients
+    5: {"name": "São Paulo",   "lat": -23.55, "lon": -46.63},
+    6: {"name": "Mumbai",      "lat": 19.07, "lon": 72.87},
+    7: {"name": "Moscow",      "lat": 55.75, "lon": 37.61},
+    8: {"name": "Beijing",     "lat": 39.90, "lon": 116.40},
+    9: {"name": "Paris",       "lat": 48.85, "lon": 2.35},
+}
+
+TASK_SERVER_LOCATIONS = {
+    "arrhythmia": {"name": "Zurich", "lat": 47.37, "lon": 8.54},
+    "nasa_battery": {"name": "Houston", "lat": 29.76, "lon": -95.36}
+}
+
 @app.on_event("startup")
 async def startup_event():
     for task_id in manager.tasks:
@@ -396,6 +416,8 @@ async def get_federation_status():
         task_statuses[task_id] = {
             "task_id": task_id,
             "status": task.status,
+            "server_location": TASK_SERVER_LOCATIONS.get(task_id), # Add server location
+            "selected_clients": task.clients_ready_for_round.get(task.current_round, []),
             "privacy_profile": task.privacy_profile,
             "current_round": task.current_round,
             "total_rounds": task.config['num_rounds'],
@@ -405,10 +427,15 @@ async def get_federation_status():
             "model_name": task.config.get('model_name', 'N/A')
         }
     
+    # Get location data for all connected clients
+    connected_clients_with_loc = [
+        {"id": cid, "location": CLIENT_LOCATIONS.get(cid)} 
+        for cid in manager.connected_clients.keys()
+    ]
+    
     return {
         "network_info": {
-            "connected_clients_count": len(manager.connected_clients),
-            "connected_client_ids": list(manager.connected_clients.keys())
+            "connected_clients": connected_clients_with_loc, # Send enriched client data
         },
         "tasks": task_statuses
     }

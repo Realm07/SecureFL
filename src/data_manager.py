@@ -117,8 +117,13 @@ class DataManager:
                 labels.append(scaled_trend[i + seq_len])
         
         print(f"    - Created {len(features)} sequences for {os.path.basename(files[0])}")
-        return TensorDataset(torch.tensor(np.array(features), dtype=torch.float32), torch.tensor(np.array(labels), dtype=torch.float32))
-
+        
+        # --- THE FIX ---
+        # Ensure labels are correctly shaped here as well.
+        features_tensor = torch.tensor(np.array(features), dtype=torch.float32)
+        labels_tensor = torch.tensor(np.array(labels), dtype=torch.float32).view(-1, 1)
+        return TensorDataset(features_tensor, labels_tensor)
+    
     def get_client_data(self, task_id, client_id):
         return self.task_data[task_id]['client_partitions'][client_id]
 

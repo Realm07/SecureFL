@@ -68,8 +68,7 @@ class NASABatteryDataset(Dataset):
         # Feature shape: (sequence_length, 1)
         # Label shape: (1,)
         return (torch.tensor(self.features[idx], dtype=torch.float32), 
-                torch.tensor(self.labels[idx], dtype=torch.float32))
-
+                torch.tensor(self.labels[idx], dtype=torch.float32).view(1))
 
 def get_nasa_datasets(config):
     nasa_data_folder = config.get('nasa_data_folder')
