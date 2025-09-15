@@ -290,3 +290,17 @@ tbody tr:last-child td { border: none; }
     flex-grow: 1;
     min-height: 0;
 }
+.log-entry {
+    margin-bottom: 4px;
+    line-height: 1.5;
+}
+.log-timestamp {
+    color: var(--text-secondary);
+    margin-right: 8px;
+}
+.log-warn .log-message {
+    color: #F39C12; /* Orange for warnings like disconnects */
+}
+.log-error .log-message {
+    color: var(--accent-red);
+}
