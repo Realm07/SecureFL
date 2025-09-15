@@ -1,3 +1,4 @@
+
 import asyncio
 from datetime import datetime
 import json
@@ -242,8 +243,7 @@ class FederationTask:
 
     def _evaluate_and_log(self, round_num):
         metric_val, _ = evaluate_global_model(self.global_model, self.test_loader, self.config['device'], self.config['metric'])
-        metric_name = self.config['metric'].upper()
-        metric_unit = "cycles" if metric_name == "RMSE" else "%"
+        metric_name, metric_unit = self.config['metric'].upper(), "cycles" if self.config['metric'] == "rmse" else "%"
         task_log(self.task_id, f"--- Round/Aggregation {round_num} Complete --- {metric_name}: {metric_val:.2f} {metric_unit} ---")
         self.metric_history.append(metric_val)
         self.csv_writer.writerow([round_num, metric_val, self.privacy_profile])
@@ -270,9 +270,30 @@ class ServerManager:
         self.context.generate_galois_keys()
         self.context.global_scale = 2**48
 
+    async def _send_to_client_safely(self, client: WebSocket, message: str):
+        """Wrapper to send a message to a single client and handle disconnection."""
+        try:
+            await client.send_text(message)
+        except (WebSocketDisconnect, ConnectionResetError):
+            # This is expected if a client disconnects during a broadcast.
+            # The main websocket_endpoint finally block will handle cleanup.
+            # We can just ignore the error here to not crash the broadcast.
+            pass
+
     async def broadcast_model(self, task: FederationTask):
-        message = json.dumps({"type": "NEW_GLOBAL_MODEL", "payload": {"task_id": task.task_id, "model_version": task.model_version, "model_state_dict": serialize_model(task.global_model), "config": task._create_client_config()}})
-        await asyncio.gather(*[client.send_text(message) for client in self.connected_clients.values()])
+        """Broadcasts the latest model for an async task to all clients."""
+        message = json.dumps({"type": "NEW_GLOBAL_MODEL", "payload": {
+            "task_id": task.task_id, 
+            "model_version": task.model_version, 
+            "model_state_dict": serialize_model(task.global_model), 
+            "config": task._create_client_config()
+        }})
+        
+        # --- FIX: Create a list of safe sending tasks to avoid crashing on a single disconnect ---
+        clients_to_send = list(self.connected_clients.values())
+        send_tasks = [self._send_to_client_safely(client, message) for client in clients_to_send]
+        await asyncio.gather(*send_tasks)
+        # ------------------------------------------------------------------------------------------
 
     def create_dynamic_task(self, task_id: str, config: dict):
         if task_id in self.tasks: raise ValueError(f"Task with ID '{task_id}' already exists.")
