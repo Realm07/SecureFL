@@ -1,16 +1,8 @@
-// In controller.js, this file requires significant changes to its state management.
-// Replace the entire file with this new version.
-
 document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = window.location.origin;
-    const state = {
-        clientId: null,
-        sessionToken: null,
-        isAutoLooping: false,
-        statusPollInterval: null,
-    };
+    const state = { clientId: null, sessionToken: null, statusPollInterval: null };
 
-    // --- DOM ELEMENT REFERENCES ---
+    // DOM References
     const screens = { login: document.getElementById('login-screen'), waiting: document.getElementById('waiting-screen'), control: document.getElementById('control-screen') };
     const steps = { data: document.getElementById('step-data'), actions: document.getElementById('step-actions'), rewarded: document.getElementById('step-rewarded') };
     const connectionStatus = document.getElementById('connection-status');
@@ -19,42 +11,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const confirmDataBtn = document.getElementById('confirm-data-btn');
     const actionBtns = document.querySelectorAll('.action-btn');
     const nextRoundBtn = document.getElementById('next-round-btn');
-    const autoLoopToggle = document.getElementById('auto-loop');
 
-    // --- UI HELPER FUNCTIONS ---
-    function showScreen(screenName) {
-        Object.values(screens).forEach(s => s.classList.remove('active'));
-        screens[screenName].classList.add('active');
-    }
-    function showStep(stepName) {
-        Object.values(steps).forEach(s => s.classList.remove('active'));
-        steps[stepName].classList.add('active');
-    }
-    function updateConnectionStatus(isConnected) {
-        connectionStatus.className = `status-dot ${isConnected ? 'connected' : 'disconnected'}`;
-    }
+    // UI Helpers
+    function showScreen(screenName) { Object.values(screens).forEach(s => s.classList.remove('active')); screens[screenName].classList.add('active'); }
+    function showStep(stepName) { Object.values(steps).forEach(s => s.classList.remove('active')); steps[stepName].classList.add('active'); }
+    function updateConnectionStatus(isConnected) { connectionStatus.className = `status-dot ${isConnected ? 'connected' : 'disconnected'}`; }
 
-    // --- API COMMUNICATION ---
+    // API Call Wrapper
     async function apiCall(endpoint, method = 'GET', body = null) {
         try {
             const options = { method, headers: { 'Content-Type': 'application/json' } };
             if (body) options.body = JSON.stringify(body);
             const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
             updateConnectionStatus(true);
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error || 'API request failed');
-            }
+            if (!response.ok) throw new Error((await response.json()).error || 'API request failed');
             return response.status === 200 ? await response.json() : {};
         } catch (error) {
             updateConnectionStatus(false);
-            console.error(`API Error on ${endpoint}:`, error);
             alert(`Connection Error: ${error.message}`);
             throw error;
         }
     }
 
-    // --- APPLICATION LOGIC ---
+    // Main Application Flow
     async function initializeLogin() {
         try {
             const { available } = await apiCall('/controller/slots');
@@ -66,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.onclick = () => joinFederation(slotId);
                 slotContainer.appendChild(btn);
             });
-        } catch (e) { /* Handled in apiCall */ }
+        } catch (e) { console.error("Could not fetch slots:", e); }
     }
 
     async function joinFederation(clientId) {
@@ -78,51 +57,55 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('client-id-display-2').textContent = state.clientId;
             showScreen('waiting');
             startStatusPolling();
-        } catch (e) {
-            document.getElementById('login-status').textContent = `Error: ${e.message}`;
-        }
+        } catch (e) { document.getElementById('login-status').textContent = `Error: ${e.message}`; }
     }
     
     async function pollStatus() {
-        if (!state.clientId || !state.sessionToken) return;
+        if (!state.clientId) return;
         try {
             const status = await apiCall('/controller/status', 'POST', {
-                client_id: state.clientId,
-                session_token: state.sessionToken
+                client_id: state.clientId, session_token: state.sessionToken
             });
-
-            if (status.current_step === 'control_panel') {
+            // --- FIX: Transition to control panel only when the server says so ---
+            if (status.current_step.startsWith('control_panel')) {
                 stopStatusPolling();
                 showScreen('control');
-                setupControlScreenForTask(status.task_info);
+                setupControlScreenForTask(status);
+            } else if (status.current_step === 'rewarded') {
+                stopStatusPolling();
+                showScreen('control');
+                showStep('rewarded');
             }
-        } catch (error) {
-            console.error("Status poll failed:", error);
-            stopStatusPolling();
-        }
+        } catch (error) { console.error("Status poll failed:", error); }
     }
 
     function startStatusPolling() {
         if (state.statusPollInterval) clearInterval(state.statusPollInterval);
         state.statusPollInterval = setInterval(pollStatus, 3000);
     }
+    function stopStatusPolling() { clearInterval(state.statusPollInterval); state.statusPollInterval = null; }
 
-    function stopStatusPolling() {
-        if (state.statusPollInterval) clearInterval(state.statusPollInterval);
-        state.statusPollInterval = null;
-    }
-
-    function setupControlScreenForTask(taskInfo) {
-        document.getElementById('task-title').textContent = `Task: ${taskInfo.task_id}`;
+    function setupControlScreenForTask(status) {
+        document.getElementById('task-title').textContent = `Task: ${status.task_info.task_id}`;
         resetActionButtons();
         populateDataGrid();
         const dpButton = document.querySelector('.action-btn[data-action="dp"]');
-        dpButton.style.display = taskInfo.privacy_profile.includes('dp') ? 'flex' : 'none';
-        showStep('data');
+        dpButton.style.display = status.task_info.privacy_profile.includes('dp') ? 'flex' : 'none';
+        
+        // --- FIX: Server drives the initial step ---
+        const initialStep = status.current_step.replace('control_panel_', '');
+        showStep(initialStep); // e.g., 'data'
+        if(initialStep !== 'data') {
+            // Enable the correct button if we start mid-way
+            const action = status.current_step.replace('actions_', '');
+            const btnToEnable = document.querySelector(`.action-btn[data-action="${action}"]`);
+            if(btnToEnable) btnToEnable.classList.add('enabled');
+        }
     }
 
     function populateDataGrid() {
         dataGrid.innerHTML = '';
+        confirmDataBtn.disabled = true;
         for (let i = 0; i < 16; i++) {
             const snippet = document.createElement('div');
             snippet.className = 'data-snippet';
@@ -135,74 +118,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    confirmDataBtn.addEventListener('click', () => {
-        showStep('actions');
-        document.querySelector('.action-btn[data-action="stake"]').classList.add('enabled');
-    });
+    confirmDataBtn.addEventListener('click', () => handleAction('confirm_data'));
 
     function resetActionButtons() {
-        actionBtns.forEach((btn, index) => {
+        actionBtns.forEach(btn => {
             btn.classList.remove('enabled', 'completed');
-            btn.disabled = false;
             const action = btn.dataset.action;
             const icon = btn.querySelector('i').className;
             const number = btn.querySelector('span').textContent;
-            const actionText = action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-            btn.innerHTML = `<span>${number}</span> <i class="${icon}"></i> ${actionText}`;
+            btn.innerHTML = `<span>${number}</span> <i class="${icon}"></i> ${action.charAt(0).toUpperCase() + action.slice(1)}`;
         });
     }
-    
-    actionBtns.forEach((btn, index) => {
-    btn.addEventListener('click', async () => {
-        if (!btn.classList.contains('enabled')) return;
-        
-        const action = btn.dataset.action;
-        const originalHTML = btn.innerHTML;
-        btn.classList.remove('enabled');
-        btn.innerHTML = `<span>${index+1}.</span> <i class="fas fa-spinner fa-spin"></i> Processing...`;
+
+    async function handleAction(action, btnElement = null) {
+        if(btnElement) {
+            btnElement.classList.remove('enabled');
+            btnElement.innerHTML = `<span>${btnElement.querySelector('span').textContent}</span> <i class="fas fa-spinner fa-spin"></i> Processing...`;
+        }
 
         try {
-            // The server now tells us exactly what the next step is
             const response = await apiCall('/controller/action', 'POST', {
                 client_id: state.clientId,
                 session_token: state.sessionToken,
                 action: action
             });
             
-            await new Promise(res => setTimeout(res, 750 + Math.random() * 500));
-            
-            btn.classList.add('completed');
-            btn.innerHTML = `<span>${index+1}.</span> <i class="fas fa-check"></i> ${action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Complete`;
+            if(btnElement) {
+                await new Promise(res => setTimeout(res, 750));
+                btnElement.classList.add('completed');
+                btnElement.innerHTML = `<span>${btnElement.querySelector('span').textContent}</span> <i class="fas fa-check"></i> ${action.charAt(0).toUpperCase() + action.slice(1)} Complete`;
+            }
 
-            // --- NEW LOGIC ---
-            // Use the server's response to determine what to do next
+            const nextStepAction = response.next_step.replace('actions_', '');
+            
             if (response.next_step === "rewarded") {
                 showStep('rewarded');
-            } else {
-                // Find the next button to enable based on its data-action attribute
-                const nextAction = response.next_step.replace('actions_', ''); // e.g., "actions_train" -> "train"
-                const nextButton = document.querySelector(`.action-btn[data-action="${nextAction}"]`);
-                if (nextButton) {
-                    nextButton.classList.add('enabled');
-                }
+            } else if (response.next_step.startsWith('actions_')) {
+                showStep('actions');
+                const nextButton = document.querySelector(`.action-btn[data-action="${nextStepAction}"]`);
+                if (nextButton) nextButton.classList.add('enabled');
             }
-            // --- END NEW LOGIC ---
 
         } catch (error) {
-            alert(`Action failed: ${error.message}`);
-            btn.innerHTML = originalHTML; // Restore button on error
-            btn.classList.add('enabled');
+            if(btnElement) btnElement.classList.add('enabled'); // Re-enable on failure
         }
-    });
-});
-    nextRoundBtn.addEventListener('click', () => {
-        showScreen('waiting');
-        startStatusPolling();
-    });
-    
-    autoLoopToggle.addEventListener('change', (e) => { state.isAutoLooping = e.target.checked; });
+    }
 
-    // --- INITIALIZATION ---
-    showScreen('login');
+    actionBtns.forEach(btn => btn.addEventListener('click', () => handleAction(btn.dataset.action, btn)));
+    nextRoundBtn.addEventListener('click', () => { showScreen('waiting'); startStatusPolling(); });
+    
     initializeLogin();
 });
