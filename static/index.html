@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phoenix Federation Dashboard</title>
+
+    <!-- Google Fonts and Font Awesome are unchanged -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+    
+    <link rel="stylesheet" href="/static/style.css">
+
+    <!-- --- THE FIX: ADD 'defer' TO ALL SCRIPT TAGS --- -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/OutputPass.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js" defer></script>
+</head>
+<body>
+
+    <!-- PRIMARY FIXED HEADER -->
+    <header class="main-header">
+        <div class="header-title">Phoenix</div>
+        <div class="status-indicator">
+            <div id="connection-status-dot" class="status-dot disconnected"></div>
+            <span id="connection-status-text">Disconnected</span>
+        </div>
+    </header>
+
+    <!-- WRAPPER FOR SIDEBAR AND MAIN CONTENT -->
+    <div class="dashboard-body">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                Phoenix
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="active"><i class="fas fa-network-wired"></i><span>Live Network Monitor</span></a>
+                <a href="#"><i class="fas fa-store"></i><span>Model Marketplace</span></a>
+                <a href="#"><i class="fas fa-hammer"></i><span>Governance Builder</span></a>
+                <a href="#"><i class="fas fa-book-open"></i><span>Federation LedGO</span></a>
+                <a href="#"><i class="fas fa-lightbulb"></i><span>Platform Concepts</span></a>
+            </nav>
+        </aside>
+
+        <!-- Main Content Grid -->
+        <main class="main-content">
+            <!-- The duplicate <header> was here and has been REMOVED -->
+
+            <div class="content-grid">
+                <!-- Column 1: Control & Logs -->
+                <section class="column">
+                    <div class="card">
+                        <h2 class="card-header">Federation Task Selection</h2>
+                        <label for="task-select">Select Active Federation Task:</label>
+                        <select id="task-select"></select>
+                    </div>
+                    <div class="card">
+                        <h2 class="card-header">Task Details</h2>
+                        <div id="task-details-content" class="card-content">
+                            <p><strong>Model:</strong> <span id="task-model-name">--</span></p>
+                            <p><strong>Privacy:</strong> <span id="task-privacy-profile">--</span></p>
+                            <p><strong>Status:</strong> <span id="task-status">--</span></p>
+                            <p><strong>Progress:</strong> <span id="task-progress">--</span></p>
+                        </div>
+                    </div>
+                    <div class="card" id="event-log-card">
+                        <h2 class="card-header">Live Event Log</h2>
+                        <div class="event-log" id="event-log"></div>
+                    </div>
+                </section>
+
+                <!-- Column 2: Globe -->
+                <section class="column">
+                     <div class="card globe-card" id="globe-card">
+                        <div id="globe-container"></div>
+                        <div class="globe-title">3D Rotating Network Globe</div>
+                        <div class="globe-subtitle">(Real-time data flows, hover tooltips)</div>
+                    </div>
+                </section>
+
+                <!-- Column 3: Performance & Economics -->
+                <section class="column">
+                    <div class="card">
+                        <h2 class="card-header" id="accuracy-chart-header">Global Model Performance</h2>
+                        <div class="chart-wrapper">
+                            <canvas id="accuracy-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="card" style="flex-grow: 1;">
+                        <h2 class="card-header">Aggregation & Economics</h2>
+                        <div class="card-content">
+                             <div class="metric-grid">
+                                <div><strong>Connected Clients:</strong> <span id="connected-clients-count">0</span></div>
+                                <div><strong>Live TPS::</strong> <span id="live-tps">--</span></div>
+                                <div class="total-stake"><strong>Total Stake:</strong> <span id="total-stake">0 PHOENIX</span></div>
+                            </div>
+                            <h3 class="sub-header">Reputation Leaderboard</h3>
+                            <div class="leaderboard-wrapper">
+                                <table id="leaderboard-table">
+                                    <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+     <script src="/static/globe.js"></script> 
+    <script src="/static/main.js"></script>
+</body>
+</html>

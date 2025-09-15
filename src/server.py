@@ -23,7 +23,32 @@ from .data_manager import DataManager
 from .ledger import FederationLedger
 from .tokenomics import TokenManager
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI()
+
+origins = [
+    "http://localhost",
+    "http://localhost:5500", # Add the port your live server is using
+    "http://127.0.0.1:5500", # Be explicit
+    "http://127.0.0.1",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 2. Go up one level to the project root (from 'src' to 'SecureFL').
+project_root = os.path.dirname(current_dir)
+# 3. Construct the full, absolute path to the 'static' directory.
+static_dir = os.path.join(project_root, "static")
 
 class TaskStatus(str, Enum):
     IDLE = "IDLE"
@@ -370,7 +395,9 @@ async def get_federation_status():
             "current_round": task.current_round,
             "total_rounds": task.config['num_rounds'],
             "metric": task.config['metric'],
-            "metric_history": task.metric_history # For live plotting
+            "metric_history": task.metric_history,
+            # --- ADD THIS LINE ---
+            "model_name": task.config.get('model_name', 'N/A')
         }
     
     return {
@@ -390,3 +417,12 @@ async def get_task_ledger(task_id: str):
 @app.get("/tokenomics")
 async def get_tokenomics_state():
     return manager.token_manager.get_all_accounts()
+
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+@app.get("/", response_class=FileResponse)
+async def read_index():
+    """Serves the main dashboard HTML file."""
+    # Also use the absolute path here for maximum robustness.
+    index_path = os.path.join(static_dir, "index.html")
+    return FileResponse(index_path)

@@ -1,0 +1,292 @@
+/* --- COLOR PALETTE & ROOT VARIABLES (MATCHING ORIGINAL DESIGN) --- */
+:root {
+    --bg-main: #0C0F1A;          /* The deep dark blue background */
+    --bg-sidebar: #0C0F1A;       /* Sidebar is same as main bg */
+    --bg-card: #181C28;          /* The slightly lighter card background */
+    --border-color: #2D3341;     /* Subtle border for cards and elements */
+    --text-primary: #D1D5DB;     /* Primary light text (almost white) */
+    --text-secondary: #8A93A2;   /* Muted gray text for labels/subtitles */
+    --accent-purple: #8A3FFC;    /* Main vibrant purple for highlights */
+    --accent-blue-link: #4A90E2; /* For sidebar links and other interactives */
+    --accent-teal-glow: #00B4D8; /* For the chart and globe accents */
+    --status-green: #2ECC71;     /* Connected status */
+    --status-red: #E74C3C;       /* Disconnected status */
+    --font-family: 'Inter', sans-serif;
+}
+
+/* --- Base & Reset --- */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: var(--font-family);
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-size: 14px;
+    height: 100vh;
+    overflow: hidden;
+    /* NEW: Make body a column container for header + body */
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- Main Layout --- */
+.dashboard-body {
+    display: flex;
+    flex-grow: 1; /* Allow this to fill the remaining space */
+    height: calc(100vh - 60px); /* Adjust height to account for fixed header, if needed */
+    overflow: hidden; /* Prevent this container from scrolling */
+    padding: 20px; /* Padding for the entire dashboard content, moved here */
+}
+
+.sidebar {
+    width: 240px;
+    background-color: var(--bg-sidebar);
+    padding: 0 15px; /* Adjust padding */
+    flex-shrink: 0;
+}
+
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px; /* Padding between sidebar and content */
+    overflow: hidden; /* Main content area will now manage its own scroll if grid exceeds height */
+    /* REMOVED: padding-top as header is separate now */
+}
+
+/* REMOVED: The old .main-header rule that was inside main-content context */
+/*
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 0 10px;
+}
+*/
+
+.content-grid {
+    display: grid;
+    grid-template-columns: 340px 1fr 340px; /* Adjusted column sizes */
+    gap: 20px;
+    height: 100%; /* Ensure grid takes full height of main-content */
+    overflow: hidden; /* Individual columns will manage their scroll */
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow: hidden; /* Allow content inside columns to scroll if needed */
+}
+
+/* --- Components --- */
+.card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.card-header, .sub-header {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin: 0 0 15px 0;
+}
+
+.sub-header {
+    margin-top: 20px;
+    font-size: 14px;
+}
+
+.card-content p {
+    margin: 0 0 12px 0;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+}
+.card-content p strong {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+.card-content p span {
+    color: var(--text-primary);
+    font-weight: 400;
+}
+
+
+/* --- Sidebar --- */
+.sidebar-header {
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: 700;
+    padding-left: 10px;
+    margin-bottom: 30px;
+    padding-top: 10px;
+}
+
+.sidebar-nav a {
+    display: flex;
+    align-items: center;
+    padding: 12px 10px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    transition: all 0.2s ease-in-out;
+    border-left: 3px solid transparent;
+}
+.sidebar-nav a:hover {
+    color: var(--text-primary);
+}
+.sidebar-nav a.active {
+    background-color: rgba(74, 144, 226, 0.1);
+    color: var(--accent-blue-link);
+    border-left: 3px solid var(--accent-blue-link);
+}
+.sidebar-nav a i {
+    margin-right: 15px;
+    width: 20px;
+    text-align: center;
+    font-size: 16px;
+}
+.sidebar-nav a span {
+    font-weight: 500;
+}
+
+/* --- NEW PRIMARY HEADER RULES --- */
+.main-header {
+    background-color: var(--bg-main);
+    padding: 0 20px;
+    height: 60px; /* Fixed height for the header */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0; /* Prevent header from shrinking */
+    z-index: 1000; /* Ensure header stays on top of other content */
+}
+.header-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* --- Status Indicator (for both header and any other use) --- */
+.status-indicator {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    transition: background-color 0.3s;
+}
+.status-dot.connected { background-color: var(--status-green); }
+.status-dot.disconnected { background-color: var(--status-red); }
+
+/* --- Forms --- */
+label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+select {
+    width: 100%;
+    padding: 12px;
+    background-color: var(--bg-main);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary); /* Changed to text-primary for better visibility */
+    border-radius: 5px;
+    font-size: 14px;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%238A93A2' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+}
+select:focus {
+    outline: none;
+    border-color: var(--accent-purple);
+}
+
+
+.event-log {
+    flex-grow: 1;
+    overflow-y: auto;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background-color: var(--bg-main);
+    padding: 15px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    max-height: 100%; 
+}
+
+.globe-card {
+    position: relative;
+    flex-grow: 1;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(circle, #181C28 0%, #0C0F1A 70%);
+}
+#globe-container {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0; left: 0;
+}
+.globe-title, .globe-subtitle {
+    position: relative;
+    z-index: 10;
+    text-align: center;
+    color: var(--text-primary);
+}
+.globe-title { font-weight: 600; font-size: 16px; }
+.globe-subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 5px; }
+
+.chart-wrapper {
+    height: 250px;
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+.metric-grid > div {
+    display: flex;
+    justify-content: space-between;
+}
+
+.leaderboard-wrapper {
+    overflow-y: auto;
+}
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 5px; text-align: left; border-bottom: 1px solid var(--border-color); }
+th { font-weight: 500; color: var(--text-secondary); text-transform: uppercase; font-size: 12px; }
+tbody tr:last-child td { border: none; }
+
+#event-log-card {
+    flex-grow: 1;
+    min-height: 0;
+}
