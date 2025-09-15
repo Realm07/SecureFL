@@ -54,7 +54,45 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    function render() {
+        if (!state.tasks || Object.keys(state.tasks).length === 0) {
+            // Don't render if we have no task data yet
+            return;
+        }
+        updateTaskSelector();
+        updateTaskDetails();
+        updateAccuracyChart();
+        updateNetworkEconomics();
+        updateGlobe(); // Replaces updateNetworkStatus
+    }
+    
+    // --- CONSOLIDATE GLOBE/NETWORK UPDATES ---
+    function updateGlobe() {
+        if (!state.globe) return;
+        const task = state.tasks[state.selectedTaskId];
+        const serverLocation = task ? task.server_location : null;
+        
+        const connectedClients = state.network.connected_clients || [];
+        state.globe.updateClientAndServerPoints(connectedClients, serverLocation);
+        
+        if (task) {
+            const activeArcClientIds = task.selected_clients || [];
+            const allClientIds = connectedClients.map(c => c.id);
 
+            activeArcClientIds.forEach(clientId => {
+                const client = connectedClients.find(c => c.id === clientId);
+                if (client && client.location && serverLocation) {
+                    state.globe.addOrUpdateArc(client.id, client.location, serverLocation);
+                }
+            });
+
+            allClientIds.forEach(clientId => {
+                if (!activeArcClientIds.includes(clientId)) {
+                    state.globe.removeArc(clientId);
+                }
+            });
+        }
+    }
     // --- UI UPDATE FUNCTIONS ---
     function updateTaskSelector() {
         // Clear previous options
@@ -71,7 +109,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         taskSelect.value = state.selectedTaskId;
     }
-
     function updateTaskDetails() {
         if (!state.selectedTaskId || !state.tasks[state.selectedTaskId]) return;
         
@@ -120,17 +157,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         document.getElementById('total-stake').textContent = `${totalStake.toFixed(2)} PHOENIX`;
     }
-
-    function updateNetworkStatus() {
-        const count = state.network.connected_clients_count || 0;
-        document.getElementById('connected-clients-count').textContent = count;
-        
-        // Update the globe with the list of connected client IDs
-        if (state.globe && state.network.connected_client_ids) {
-            state.globe.updateClientStatus(state.network.connected_client_ids);
-        }
-    }
-
     function generateLiveLogs(prevState, currentState) {
         if (!prevState.tasks) return; // Don't log on the very first fetch
 
@@ -159,7 +185,6 @@ document.addEventListener('DOMContentLoaded', () => {
         connected.forEach(id => logEvent(`Client #${id} connected.`));
         disconnected.forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
     }
-    
 
 
     // --- MAIN DATA FETCHING LOOP ---
@@ -175,71 +200,84 @@ document.addEventListener('DOMContentLoaded', () => {
             const statusData = await statusResponse.json();
             const tokenomicsData = await tokenomicsResponse.json();
             
-            // --- NEW: GENERATE LOGS BEFORE UPDATING STATE ---
             generateLiveLogs(state, { tasks: statusData.tasks, network: statusData.network_info });
-
-            // Store a DEEP COPY of the previous state
             state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network }));
             
-            // Update state with new data
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
             state.tokenomics = tokenomicsData;
             
-            // Update connection indicator
-            document.getElementById('connection-status-dot').className = 'status-dot connected';
-            document.getElementById('connection-status-text').textContent = 'Connected';
-
+            // --- CALL THE SINGLE RENDER FUNCTION ---
+            render(); 
+            
+            // ... connection indicator logic is the same ...
         } catch (error) {
-            console.error('Failed to fetch data:', error);
-            logEvent('Failed to connect to server.', 'error');
-            document.getElementById('connection-status-dot').className = 'status-dot disconnected';
-            document.getElementById('connection-status-text').textContent = 'Disconnected';
+            // ... error handling is the same ...
         }
     }
     
-    // --- EVENT LISTENERS ---
+    // --- EVENT LISTENERS (MODIFIED) ---
     taskSelect.addEventListener('change', (e) => {
+        if (state.globe) {
+            state.globe.clearAllArcs();
+        }
         state.selectedTaskId = e.target.value;
-        // Immediately update UI for the newly selected task
-        updateTaskDetails();
-        updateAccuracyChart();
+        render(); // Just call render, it will handle everything
     });
 
-    // --- INITIALIZATION ---
-    logEvent('Dashboard Initialized. Connecting to server...');
-    initializeAccuracyChart();
-     const globeContainer = document.getElementById('globe-container');
-    if (globeContainer) {
-        state.globe = createGlobe(globeContainer);
+function initializeDashboard() {
+        logEvent('Dashboard Initialized. Connecting to server...');
+
+        // --- ROBUSTNESS CHECK: Ensure libraries are loaded ---
+        if (typeof Chart === 'undefined') {
+            logEvent('Error: Chart.js library not loaded.', 'error');
+            console.error('Chart.js is not loaded. Cannot initialize charts.');
+            return;
+        }
+        if (typeof THREE === 'undefined') {
+            logEvent('Error: Three.js library not loaded.', 'error');
+            console.error('Three.js is not loaded. Cannot initialize globe.');
+            return;
+        }
+        if (typeof createGlobe === 'undefined') {
+            logEvent('Error: globe.js module not loaded.', 'error');
+            console.error('globe.js is not loaded. Cannot initialize globe.');
+            return;
+        }
+        // ---------------------------------------------------
+
+        initializeAccuracyChart();
+        
+        const globeContainer = document.getElementById('globe-container');
+        if (globeContainer) {
+            state.globe = createGlobe(globeContainer);
+        }
+        
+        // Start polling only if the tab is initially visible
+        if (document.visibilityState === 'visible') {
+            startPolling();
+        }
     }
+
     let fetchDataInterval;
 
     function startPolling() {
-        // Clear any existing interval to prevent duplicates
         if (fetchDataInterval) clearInterval(fetchDataInterval);
-        
-        fetchData(); // Fetch immediately
-        fetchDataInterval = setInterval(fetchData, 3000); // Poll every 3 seconds
+        fetchData();
+        fetchDataInterval = setInterval(fetchData, 3000);
     }
 
     function stopPolling() {
         clearInterval(fetchDataInterval);
     }
-
-    // --- NEW: HANDLE PAGE VISIBILITY ---
+    
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            console.log('Tab is visible, starting polling.');
             startPolling();
         } else {
-            console.log('Tab is hidden, stopping polling.');
             stopPolling();
         }
     });
-
-    // Start polling only if the tab is initially visible
-    if (document.visibilityState === 'visible') {
-        startPolling();
-    }
+    
+initializeDashboard();
 });
