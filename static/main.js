@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const marketplaceGrid = document.getElementById('marketplace-grid');
     const rotationToggle = document.getElementById('toggle-rotation');
     const cloudsToggle = document.getElementById('toggle-clouds');
+
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
         const logEntry = document.createElement('div');
@@ -49,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateAccuracyChart();
             updateLiveAccuracy();
             updateGlobeArcs();
-            updateMarketplace(); // Update marketplace when tasks change
+            updateMarketplace();
             generateLiveLogsAndPulses(prev, state);
         }
         if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
@@ -63,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateGlobePointsAndArcs() {
         if (!state.globe) return;
         const connectedClients = state.network.connected_clients || [];
-        // --- MODIFIED: Pass tokenomics data to the globe ---
         state.globe.updateClientPoints(connectedClients, state.tokenomics);
         updateGlobeArcs();
     }
@@ -146,53 +146,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function generateLiveLogsAndPulses(prevState, currentState) {
         if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) return;
-
         for (const taskId in currentState.tasks) {
             const prevTask = prevState.tasks[taskId] || { current_round: 0, status: '', metric_history: [], selected_clients: [] };
             const currentTask = currentState.tasks[taskId];
-            
             if (currentTask.current_round > prevTask.current_round) {
                 const metricName = currentTask.metric.toUpperCase();
                 const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
                 logEvent(`Task '${taskId}' round ${currentTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
-
-                // --- NEW: Trigger server glow and broadcast pulses on aggregation ---
                 if (state.globe && taskId === state.selectedTaskId) {
                     state.globe.triggerServerGlow();
                     const participatingClients = currentTask.selected_clients || [];
-                    
                     participatingClients.forEach((clientId, index) => {
-                        // Add a small delay to create a "wave" effect
-                        setTimeout(() => {
-                            state.globe.triggerBroadcastPulse(clientId);
-                        }, index * 100); 
+                        setTimeout(() => { state.globe.triggerBroadcastPulse(clientId); }, index * 100); 
                     });
                 }
-                // ----------------------------------------------------------------------
             }
-            if (currentTask.status !== prevTask.status) {
-                logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`);
-            }
-
+            if (currentTask.status !== prevTask.status) { logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`); }
             if (state.selectedTaskId === taskId && state.globe) {
                 const newlyReadyClients = (currentTask.selected_clients || []).filter(id => !(prevTask.selected_clients || []).includes(id));
-                
                 newlyReadyClients.forEach(clientId => {
                     logEvent(`Client #${clientId} finished training for task '${taskId}'.`, 'success');
                     state.globe.triggerPulse(clientId);
                 });
             }
         }
-
         const prevClients = (prevState.network.connected_clients || []).map(c => c.id);
         const currentClients = (currentState.network.connected_clients || []).map(c => c.id);
-        const connected = currentClients.filter(id => !prevClients.includes(id));
-        const disconnected = prevClients.filter(id => !currentClients.includes(id));
-        connected.forEach(id => logEvent(`Client #${id} connected.`));
-        disconnected.forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
+        currentClients.filter(id => !prevClients.includes(id)).forEach(id => logEvent(`Client #${id} connected.`));
+        prevClients.filter(id => !currentClients.includes(id)).forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
     }
 
-    // --- NEW: MARKETPLACE UI UPDATE ---
+    // --- MARKETPLACE UI UPDATE (NOW WITH INTERACTIVE STAKING) ---
     function updateMarketplace() {
         marketplaceGrid.innerHTML = '';
         if (!state.tasks || Object.keys(state.tasks).length === 0) {
@@ -217,8 +201,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         <p><strong>Privacy:</strong> <span>${task.privacy_profile.toUpperCase().replace('_', ' + ')}</span></p>
                     </div>
                     <div class="bounty-footer">
-                        <div class="bounty-value">1,500 PHOENIX</div>
-                        <div class="bounty-label">Total Bounty</div>
+                        <input type="number" class="stake-input" placeholder="Amount to Stake" min="1">
+                        <button class="button-primary stake-button" data-task-id="${task.task_id}" ${isCompleted ? 'disabled' : ''}>
+                            ${isCompleted ? 'Task Complete' : 'Contribute Stake'}
+                        </button>
                     </div>
                 </div>
             `;
@@ -233,14 +219,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!statusResponse.ok || !tokenomicsResponse.ok) throw new Error('Network response was not ok');
             const statusData = await statusResponse.json();
             const tokenomicsData = await tokenomicsResponse.json();
-            
             state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network, tokenomics: state.tokenomics }));
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
             state.tokenomics = tokenomicsData;
-            
             render();
-            
             connectionStatusDot.className = 'status-dot connected';
             connectionStatusText.textContent = 'Connected';
         } catch (error) {
@@ -258,22 +241,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const newTaskId = option.dataset.value;
         if (newTaskId !== state.selectedTaskId) {
             state.selectedTaskId = newTaskId;
-            
-            // --- NEW: Animate camera on task change ---
             const newTask = state.tasks[newTaskId];
-            if (state.globe && newTask && newTask.server_location) {
-                state.globe.flyTo(newTask.server_location);
-            }
-            // -------------------------------------------
-
-            if (state.globe) {
-                state.globe.clearAllArcs();
-                updateGlobeArcs();
-            }
-            updateTaskSelector();
-            updateTaskDetails();
-            updateAccuracyChart();
-            updateLiveAccuracy();
+            if (state.globe && newTask && newTask.server_location) { state.globe.flyTo(newTask.server_location); }
+            if (state.globe) { state.globe.clearAllArcs(); updateGlobeArcs(); }
+            updateTaskSelector(); updateTaskDetails(); updateAccuracyChart(); updateLiveAccuracy();
         }
         taskSelectContainer.classList.remove('open');
     });
@@ -286,58 +257,79 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById(`tab-content-${tab.dataset.tab}`).classList.add('active');
         });
     });
-    rotationToggle.addEventListener('change', (e) => {
-        if (state.globe) {
-            state.globe.toggleRotation(e.target.checked);
-        }
-    });
-
-    cloudsToggle.addEventListener('change', (e) => {
-        if (state.globe) {
-            state.globe.toggleClouds(e.target.checked);
-        }
-    });
-    // --- NEW: VIEW SWITCHING LISTENER ---
+    rotationToggle.addEventListener('change', (e) => { if (state.globe) { state.globe.toggleRotation(e.target.checked); } });
+    cloudsToggle.addEventListener('change', (e) => { if (state.globe) { state.globe.toggleClouds(e.target.checked); } });
     sidebarNav.addEventListener('click', (e) => {
         const link = e.target.closest('a');
         if (!link || !link.dataset.view) return;
         e.preventDefault();
-        
-        // Update active link
         sidebarNav.querySelector('a.active').classList.remove('active');
         link.classList.add('active');
-
-        // Update active view
         mainContent.querySelector('.view-container.active-view').classList.remove('active-view');
         document.getElementById(link.dataset.view).classList.add('active-view');
     });
-
-    // --- NEW: FEDERATION BUILDER FORM SUBMISSION ---
     taskBuilderForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(taskBuilderForm);
         const config = {};
-        formData.forEach((value, key) => {
-            // Convert numerical strings to numbers
-            config[key] = isNaN(value) || value === '' ? value : Number(value);
-        });
-
+        formData.forEach((value, key) => { config[key] = isNaN(value) || value === '' ? value : Number(value); });
         logEvent(`Attempting to create new task: '${config.task_id}'...`);
-
         try {
-            const response = await fetch('/create-task', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
+            const response = await fetch('/create-task', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
             const result = await response.json();
-            if (!response.ok) {
-                throw new Error(result.error || 'Unknown error');
-            }
+            if (!response.ok) { throw new Error(result.error || 'Unknown error'); }
             logEvent(`Successfully created task '${config.task_id}'!`, 'success');
             taskBuilderForm.reset();
         } catch (error) {
             logEvent(`Failed to create task: ${error.message}`, 'error');
+        }
+    });
+
+    // --- NEW: STAKING EVENT LISTENER (USING EVENT DELEGATION) ---
+    marketplaceGrid.addEventListener('click', async (e) => {
+        if (!e.target.matches('.stake-button')) return;
+
+        const button = e.target;
+        const taskId = button.dataset.taskId;
+        const input = button.parentElement.querySelector('.stake-input');
+        const amount = parseFloat(input.value);
+
+        if (isNaN(amount) || amount <= 0) {
+            logEvent('Please enter a valid amount to stake.', 'warn');
+            return;
+        }
+
+        // For this simulation, we'll prompt for a client ID.
+        // In a real app, this would come from user authentication.
+        const clientIdStr = prompt("Enter your Client ID (0-9) to stake tokens:", "0");
+        if (clientIdStr === null) return; // User cancelled
+        const clientId = parseInt(clientIdStr);
+        if (isNaN(clientId)) {
+            logEvent('Invalid Client ID.', 'error');
+            return;
+        }
+
+        logEvent(`Client #${clientId} attempting to stake ${amount} on task '${taskId}'...`);
+        button.disabled = true;
+        button.textContent = 'Staking...';
+
+        try {
+            const response = await fetch('/stake', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ client_id: clientId, amount, task_id: taskId })
+            });
+            const result = await response.json();
+            if (!response.ok) { throw new Error(result.error || 'Staking failed'); }
+            
+            logEvent(`Client #${clientId} successfully staked ${amount} PHOENIX!`, 'success');
+            input.value = ''; // Clear input on success
+            fetchData(); // Immediately refresh data to show new balances
+        } catch (error) {
+            logEvent(`Staking failed for Client #${clientId}: ${error.message}`, 'error');
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Contribute Stake';
         }
     });
 
@@ -354,7 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let fetchDataInterval;
-    function startPolling() { if (fetchDataInterval) clearInterval(fetchDataInterval); fetchData(); fetchDataInterval = setInterval(fetchData, 2000); } // Faster polling
+    function startPolling() { if (fetchDataInterval) clearInterval(fetchDataInterval); fetchData(); fetchDataInterval = setInterval(fetchData, 2000); }
     function stopPolling() { clearInterval(fetchDataInterval); }
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? startPolling() : stopPolling());
     

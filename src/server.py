@@ -1,4 +1,3 @@
-
 import asyncio
 from datetime import datetime
 import json
@@ -271,29 +270,21 @@ class ServerManager:
         self.context.global_scale = 2**48
 
     async def _send_to_client_safely(self, client: WebSocket, message: str):
-        """Wrapper to send a message to a single client and handle disconnection."""
         try:
             await client.send_text(message)
         except (WebSocketDisconnect, ConnectionResetError):
-            # This is expected if a client disconnects during a broadcast.
-            # The main websocket_endpoint finally block will handle cleanup.
-            # We can just ignore the error here to not crash the broadcast.
             pass
 
     async def broadcast_model(self, task: FederationTask):
-        """Broadcasts the latest model for an async task to all clients."""
         message = json.dumps({"type": "NEW_GLOBAL_MODEL", "payload": {
             "task_id": task.task_id, 
             "model_version": task.model_version, 
             "model_state_dict": serialize_model(task.global_model), 
             "config": task._create_client_config()
         }})
-        
-        # --- FIX: Create a list of safe sending tasks to avoid crashing on a single disconnect ---
         clients_to_send = list(self.connected_clients.values())
         send_tasks = [self._send_to_client_safely(client, message) for client in clients_to_send]
         await asyncio.gather(*send_tasks)
-        # ------------------------------------------------------------------------------------------
 
     def create_dynamic_task(self, task_id: str, config: dict):
         if task_id in self.tasks: raise ValueError(f"Task with ID '{task_id}' already exists.")
@@ -383,6 +374,30 @@ async def create_task_endpoint(request: Request):
         return {"message": f"Task '{task_id}' created successfully."}
     except ValueError as e: return JSONResponse(status_code=409, content={"error": str(e)})
     except Exception as e: return JSONResponse(status_code=500, content={"error": f"Failed to create task: {e}"})
+
+# --- NEW: Staking Endpoint ---
+@app.post("/stake")
+async def stake_tokens_endpoint(request: Request):
+    try:
+        data = await request.json()
+        client_id = int(data.get("client_id"))
+        amount = float(data.get("amount"))
+        task_id = data.get("task_id")
+
+        if client_id is None or amount is None or task_id is None:
+            return JSONResponse(status_code=400, content={"error": "client_id, amount, and task_id are required."})
+
+        success, message = manager.token_manager.stake_tokens(client_id, amount, task_id)
+        
+        if success:
+            return {"message": message}
+        else:
+            return JSONResponse(status_code=400, content={"error": message})
+            
+    except (ValueError, TypeError):
+        return JSONResponse(status_code=400, content={"error": "Invalid data types for client_id or amount."})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"An internal server error occurred: {e}"})
 
 @app.get("/status")
 async def get_federation_status():

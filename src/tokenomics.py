@@ -1,4 +1,3 @@
-# src/tokenomics.py
 
 import json
 import os
@@ -23,7 +22,6 @@ class TokenManager:
         if os.path.exists(self.storage_path):
             try:
                 with open(self.storage_path, 'r') as f:
-                    # Convert string keys back to int keys
                     self.accounts = {int(k): v for k, v in json.load(f).items()}
                 print("INFO: Tokenomics accounts loaded from disk.")
             except (json.JSONDecodeError, IOError) as e:
@@ -47,9 +45,8 @@ class TokenManager:
             print(f"INFO: Registering new Client #{client_id} in token economy.")
             self.accounts[client_id] = {
                 "balance": self.initial_balance,
-                "stake": self.initial_stake  # Stake some initial amount to be eligible
+                "stake": self.initial_stake
             }
-            # Balance should reflect that some tokens are now staked
             self.accounts[client_id]["balance"] -= self.initial_stake
             self.save_accounts()
 
@@ -61,7 +58,6 @@ class TokenManager:
 
     def reward_clients(self, client_ids: list[int], reward_amount: float):
         """Adds a reward amount to the balance of each participating client."""
-        # print(f"--- Rewarding {len(client_ids)} clients with {reward_amount} tokens each ---")
         for client_id in client_ids:
             if client_id in self.accounts:
                 self.accounts[client_id]["balance"] += reward_amount
@@ -70,16 +66,12 @@ class TokenManager:
         self.save_accounts()
 
     def slash_client(self, client_id: int):
-        """
-        Slashes a client's stake for simulated malicious behavior.
-        The stake is forfeited and removed from the system.
-        """
+        """Slashes a client's stake for simulated malicious behavior."""
         if client_id in self.accounts:
             staked_amount = self.accounts[client_id].get("stake", 0)
             if staked_amount > 0:
                 print(f"--- Slashing! Client #{client_id} forfeits {staked_amount} staked tokens. ---")
                 self.accounts[client_id]["stake"] = 0
-                # Todo: apply a balance penalty here
                 self.save_accounts()
                 return True
         return False
@@ -87,3 +79,27 @@ class TokenManager:
     def get_all_accounts(self) -> Dict[int, Dict[str, float]]:
         """Returns a copy of all account data."""
         return self.accounts.copy()
+
+    # --- NEW: Interactive Staking Logic ---
+    def stake_tokens(self, client_id: int, amount: float, task_id: str) -> Tuple[bool, str]:
+        """
+        Allows a client to stake a specified amount of tokens from their balance.
+        Returns a success/fail boolean and a message.
+        """
+        if client_id not in self.accounts:
+            return False, f"Client #{client_id} not found."
+        
+        if amount <= 0:
+            return False, "Stake amount must be positive."
+            
+        account = self.accounts[client_id]
+        if account["balance"] < amount:
+            return False, f"Insufficient balance. Available: {account['balance']:.2f}, Tried to stake: {amount:.2f}"
+            
+        # Move tokens from balance to stake
+        account["balance"] -= amount
+        account["stake"] += amount
+        
+        print(f"INFO: Client #{client_id} staked {amount:.2f} tokens for task '{task_id}'.")
+        self.save_accounts()
+        return True, f"Successfully staked {amount:.2f} tokens."
