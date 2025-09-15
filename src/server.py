@@ -207,9 +207,9 @@ class FederationTask:
             "data_root": self.config['data_root'],
             "num_clients": self.config['num_clients'],
             
-            # --- ADD THIS LINE ---
+            # --- FIX: Ensure nasa_data_folder is passed to the client ---
             "nasa_data_folder": self.config.get('nasa_data_folder'),
-            # ---------------------
+            # -----------------------------------------------------------
             
             # Task identifiers
             "dataset_name": self.config['dataset_name'],
@@ -313,11 +313,11 @@ manager = ServerManager()
 async def task_orchestrator_loop(task_id: str):
     task = manager.tasks[task_id]
     
-    # --- FIX: STAGGERED STARTUP ---
+    # --- FIX: Add a random delay to stagger task startups ---
     startup_delay = random.uniform(1.0, 5.0)
     await asyncio.sleep(startup_delay)
+    # --------------------------------------------------------
     
-    # Use the new logger
     task_log(task_id, "Orchestrator started.")
     initial_metric, _ = evaluate_global_model(task.global_model, task.test_loader, task.config['device'], task.config['metric'])
     metric_name = task.config['metric'].upper()
@@ -330,13 +330,13 @@ async def task_orchestrator_loop(task_id: str):
     task.status = TaskStatus.IDLE
 
     while not task.is_complete():
-        # --- THE FIX: EXECUTE FIRST, THEN SLEEP ---
-        # Don't sleep at the start of the loop. This ensures the orchestrator
-        # is always ready to process client "TRAINING_COMPLETE" messages.
+        # --- FIX: Execute the round FIRST, then sleep AFTER. ---
+        # This makes the server more responsive to client completions.
         await task.execute_round(manager)
         
         # Sleep AFTER the round is complete to pace the tasks.
         await asyncio.sleep(5)
+        # ---------------------------------------------------------
 
 
 CLIENT_LOCATIONS = {
@@ -423,7 +423,6 @@ async def get_federation_status():
             "total_rounds": task.config['num_rounds'],
             "metric": task.config['metric'],
             "metric_history": task.metric_history,
-            # --- ADD THIS LINE ---
             "model_name": task.config.get('model_name', 'N/A')
         }
     

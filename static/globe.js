@@ -1,5 +1,8 @@
-
 const GLOBE_RADIUS = 100;
+const CLIENT_POINT_RADIUS = 0.8;
+const SERVER_POINT_RADIUS = 2.0;
+const PULSE_RADIUS = 1.5;
+const ARC_THICKNESS = 0.4;
 
 function latLonToVector3(lat, lon, radius) {
     const phi = (90 - lat) * (Math.PI / 180);
@@ -10,19 +13,41 @@ function latLonToVector3(lat, lon, radius) {
     return new THREE.Vector3(x, y, z);
 }
 
+// --- FIX: Advanced Arc Calculation with Cubic Bezier Curve ---
+// This new logic ensures arcs always travel above the globe and have a graceful liftoff.
 function createCurve(startVec, endVec) {
-    const start = startVec;
-    const end = endVec;
-    const mid = start.clone().lerp(end, 0.5);
-    const distance = start.distanceTo(end);
-    mid.normalize().multiplyScalar(GLOBE_RADIUS + distance * 0.3);
-    const curve = new THREE.CubicBezierCurve3(start, start.clone().normalize().multiplyScalar(GLOBE_RADIUS + 10), mid, end);
+    // 1. Calculate the midpoint in 3D space
+    const midPoint = startVec.clone().lerp(endVec, 0.5);
+
+    // 2. Calculate the distance between the two points (the chord length)
+    const distance = startVec.distanceTo(endVec);
+
+    // 3. Push the midpoint away from the center of the globe to create the arc's peak.
+    // The peak height is proportional to the distance, making long arcs taller.
+    // The multiplier (0.5) is increased for more dramatic height.
+    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75);
+
+    // 4. Create two control points for the Cubic Bezier Curve.
+    // These points are interpolated between the start/end points and the high midpoint.
+    // This forces the curve to "lift off" the surface of the globe before curving.
+    const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
+    const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
+
+    // 5. Create the Cubic Bezier Curve
+    const curve = new THREE.CubicBezierCurve3(
+        startVec,
+        controlPoint1,
+        controlPoint2,
+        endVec
+    );
+
     return curve;
 }
 
+
 function createGlobe(container) {
     let scene, camera, renderer, controls, earthMesh, cloudsMesh, composer;
-    let clientPoints = new Map(); // Stores { id: THREE.Mesh }
+    let clientPoints = new Map();
     let serverPoint = null;
     let activeArcs = new Map();
     let activePulses = [];
@@ -32,17 +57,12 @@ function createGlobe(container) {
         camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
         camera.position.z = 250;
 
-        // --- FIX 1: MAKE RENDERER TRANSPARENT ---
-        // We still need alpha:true, but we also set the clearAlpha to 0.
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setClearAlpha(0.0); // This makes the renderer background transparent
-        // ------------------------------------------
-        
+        renderer.setClearAlpha(0.0);
         renderer.setSize(container.clientWidth, container.clientHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         container.appendChild(renderer.domElement);
         
-        // Remove placeholder text
         const title = document.querySelector('.globe-title');
         const subtitle = document.querySelector('.globe-subtitle');
         if(title) title.style.display = 'none';
@@ -58,11 +78,7 @@ function createGlobe(container) {
         controls.maxDistance = 500;
 
         const textureLoader = new THREE.TextureLoader();
-        
-        // 1. Earth's main texture (Night Map)
         const earthTexture = textureLoader.load('/static/textures/Earth_Night_Map_HIGH.jpg'); 
-        
-        // 2. Specular Map (for shininess)
         const specularMap = textureLoader.load('/static/textures/Earth_Specular_Map_HIGH.tif'); 
         const earthMaterial = new THREE.MeshPhongMaterial({
             map: earthTexture,
@@ -74,8 +90,6 @@ function createGlobe(container) {
         earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
         scene.add(earthMesh);
 
-
-        // 3. Clouds Layer
         const cloudTexture = textureLoader.load('/static/textures/Earth_Clouds_HIGH.jpg');
         const cloudMaterial = new THREE.MeshLambertMaterial({
             map: cloudTexture,
@@ -86,7 +100,6 @@ function createGlobe(container) {
         cloudsMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
         scene.add(cloudsMesh);
 
-        // Atmosphere Glow (using shader for rim effect)
         const atmosphereMaterial = new THREE.ShaderMaterial({
             vertexShader: `
                 varying vec3 vNormal;
@@ -110,30 +123,19 @@ function createGlobe(container) {
         const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
         scene.add(atmosphere);
 
-        // Lighting
         const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6);
         scene.add(hemisphereLight);
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
         scene.add(ambientLight);
 
-        // --- FIX: REMOVED THE BUGGY for-LOOP THAT USED clientLocations ---
-        // Client points are now created dynamically in updateClientAndServerPoints.
-
-        // --- FIX: CORRECT POST-PROCESSING INITIALIZATION ORDER ---
-        // 1. Create the EffectComposer FIRST, passing the renderer to it.
         composer = new THREE.EffectComposer(renderer);
-        
-        // 2. Create the passes.
         const renderScene = new THREE.RenderPass(scene, camera);
         const bloomPass = new THREE.UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
             0.4, 0.5, 0.85
         );
-
-        // 3. Add the passes to the composer.
         composer.addPass(renderScene);
         composer.addPass(bloomPass);
-        // --------------------------------------------------------
 
         animate();
         window.addEventListener('resize', onWindowResize);
@@ -142,50 +144,49 @@ function createGlobe(container) {
     function addOrUpdateArc(clientId, clientLocation, serverLocation) {
         const key = `arc-${clientId}`;
         if (activeArcs.has(key)) {
-            // Arc already exists, maybe update it later if needed
-            return;
+            return; 
         }
 
         const startVec = latLonToVector3(clientLocation.lat, clientLocation.lon, GLOBE_RADIUS);
         const endVec = latLonToVector3(serverLocation.lat, serverLocation.lon, GLOBE_RADIUS);
         
         const curve = createCurve(startVec, endVec);
-        const points = curve.getPoints(50);
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const material = new THREE.LineBasicMaterial({ color: 0x00B4D8, transparent: true, opacity: 0.5 });
         
-        const arc = new THREE.Line(geometry, material);
-        earthMesh.add(arc);
-        activeArcs.set(key, { arc, curve });
+        const geometry = new THREE.TubeGeometry(curve, 64, ARC_THICKNESS, 8, false);
+        const material = new THREE.MeshBasicMaterial({ color: 0x00B4D8 });
         
-        // Create a pulse for this new arc
-        createPulse(curve);
+        const arcMesh = new THREE.Mesh(geometry, material);
+        earthMesh.add(arcMesh);
+        activeArcs.set(key, { mesh: arcMesh, curve });
     }
 
-    function removeArc(clientId) {
-        const key = `arc-${clientId}`;
-        if (activeArcs.has(key)) {
-            const { arc } = activeArcs.get(key);
-            earthMesh.remove(arc);
-            arc.geometry.dispose();
-            arc.material.dispose();
-            activeArcs.delete(key);
-        }
+    function removeInactiveArcs(connectedClientIds) {
+        activeArcs.forEach((arcData, key) => {
+            const arcClientId = parseInt(key.split('-')[1]);
+            if (!connectedClientIds.includes(arcClientId)) {
+                earthMesh.remove(arcData.mesh);
+                arcData.mesh.geometry.dispose();
+                arcData.mesh.material.dispose();
+                activeArcs.delete(key);
+            }
+        });
     }
 
     function clearAllArcs() {
-        activeArcs.forEach((_, key) => {
-            const clientId = key.split('-')[1];
-            removeArc(clientId);
+        activeArcs.forEach((arcData, key) => {
+            earthMesh.remove(arcData.mesh);
+            arcData.mesh.geometry.dispose();
+            arcData.mesh.material.dispose();
         });
-        // Also clear any lingering pulses
-        activePulses.forEach(pulse => earthMesh.remove(pulse.mesh));
-        activePulses = [];
+        activeArcs.clear();
     }
 
-    // --- NEW: PulseManager ---
-    function createPulse(curve) {
-        const geometry = new THREE.SphereGeometry(2, 8, 8);
+    function triggerPulse(clientId) {
+        const key = `arc-${clientId}`;
+        if (!activeArcs.has(key)) return;
+
+        const { curve } = activeArcs.get(key);
+        const geometry = new THREE.SphereGeometry(PULSE_RADIUS, 16, 16);
         const material = new THREE.MeshBasicMaterial({ color: 0x2ECC71 });
         const pulseMesh = new THREE.Mesh(geometry, material);
         
@@ -193,7 +194,7 @@ function createGlobe(container) {
             mesh: pulseMesh,
             curve: curve,
             progress: 0,
-            speed: 0.005 + Math.random() * 0.005 // Randomize speed
+            speed: 0.008
         };
         activePulses.push(pulse);
         earthMesh.add(pulseMesh);
@@ -205,24 +206,26 @@ function createGlobe(container) {
             pulse.progress += pulse.speed;
 
             if (pulse.progress >= 1) {
-                // Reset the pulse to the beginning
-                pulse.progress = 0;
+                earthMesh.remove(pulse.mesh);
+                pulse.mesh.geometry.dispose();
+                pulse.mesh.material.dispose();
+                activePulses.splice(i, 1);
+            } else {
+                const newPos = pulse.curve.getPoint(pulse.progress);
+                pulse.mesh.position.copy(newPos);
             }
-            
-            const newPos = pulse.curve.getPoint(pulse.progress);
-            pulse.mesh.position.copy(newPos);
         }
     }
 
     function animate() {
         requestAnimationFrame(animate);
-        if (cloudsMesh) {
-            cloudsMesh.rotation.y += 0.0001;
-        }
+        if (cloudsMesh) cloudsMesh.rotation.y += 0.0001;
+        
         animatePulses();
+
         if (serverPoint) {
             const time = Date.now() * 0.005;
-            const scale = 1.0 + Math.sin(time) * 0.1; // Pulsate between 0.9 and 1.1 scale
+            const scale = 1.0 + Math.sin(time) * 0.1;
             serverPoint.scale.set(scale, scale, scale);
         }
         controls.update();
@@ -234,24 +237,21 @@ function createGlobe(container) {
         camera.updateProjectionMatrix();
         renderer.setSize(container.clientWidth, container.clientHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
-        container.appendChild(renderer.domElement);
+        composer.setSize(container.clientWidth, container.clientHeight);
     }
 
-    function updateClientAndServerPoints(connectedClients, serverLocation) {
+    function updateClientPoints(connectedClients) {
         const connectedClientIds = connectedClients.map(c => c.id);
 
-        // 1. Add or update points for currently connected clients
         connectedClients.forEach(client => {
             if (client.location) {
                 const pos = latLonToVector3(client.location.lat, client.location.lon, GLOBE_RADIUS);
                 
                 if (clientPoints.has(client.id)) {
-                    // Point already exists, just make sure it's visible
                     clientPoints.get(client.id).visible = true;
                 } else {
-                    // Point doesn't exist, create it
-                    const pointGeometry = new THREE.SphereGeometry(1.5, 16, 16);
-                    const pointMaterial = new THREE.MeshBasicMaterial({ color: 0x2ECC71, transparent: true, opacity: 1.0 });
+                    const pointGeometry = new THREE.SphereGeometry(CLIENT_POINT_RADIUS, 16, 16);
+                    const pointMaterial = new THREE.MeshBasicMaterial({ color: 0x2ECC71 });
                     const point = new THREE.Mesh(pointGeometry, pointMaterial);
                     point.position.copy(pos);
                     earthMesh.add(point);
@@ -260,14 +260,14 @@ function createGlobe(container) {
             }
         });
         
-        // 2. Hide points for clients that have disconnected
         clientPoints.forEach((point, id) => {
             if (!connectedClientIds.includes(id)) {
                 point.visible = false;
             }
         });
-
-        // 3. Update server point
+    }
+    
+    function updateServerPoint(serverLocation) {
         if (serverPoint) {
             earthMesh.remove(serverPoint);
             serverPoint.geometry.dispose();
@@ -276,12 +276,8 @@ function createGlobe(container) {
         }
         if (serverLocation) {
             const pos = latLonToVector3(serverLocation.lat, serverLocation.lon, GLOBE_RADIUS);
-            
-            // --- THE FIX: CHANGE CUBE TO SPHERE ---
-            const geometry = new THREE.SphereGeometry(3, 16, 16); // A larger sphere
+            const geometry = new THREE.SphereGeometry(SERVER_POINT_RADIUS, 16, 16);
             const material = new THREE.MeshBasicMaterial({ color: 0x8A3FFC });
-            // ------------------------------------
-
             serverPoint = new THREE.Mesh(geometry, material);
             serverPoint.position.copy(pos);
             earthMesh.add(serverPoint);
@@ -291,9 +287,11 @@ function createGlobe(container) {
     init();
 
     return {
-        updateClientAndServerPoints,
+        updateClientPoints,
+        updateServerPoint,
         addOrUpdateArc,
-        removeArc,
-        clearAllArcs
+        removeInactiveArcs,
+        clearAllArcs,
+        triggerPulse
     };
 }
