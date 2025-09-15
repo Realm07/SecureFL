@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AegisMesh Client Controller</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+    <link rel="stylesheet" href="/static/controller.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>AegisMesh</h1>
+            <div id="connection-status" class="status-dot disconnected"></div>
+        </header>
+
+        <!-- Screen 1: Login / Slot Selection -->
+        <div id="login-screen" class="screen active">
+            <h2>Join the Federation</h2>
+            <p>Select an available client slot to begin.</p>
+            <div id="slot-container" class="slot-container">
+                <!-- Slots will be populated by JS -->
+            </div>
+            <p class="status-message" id="login-status"></p>
+        </div>
+
+        <!-- Screen 2: Waiting for Task -->
+        <div id="waiting-screen" class="screen">
+            <div class="client-info">Client ID: <span id="client-id-display"></span></div>
+            <h2><i class="fas fa-spinner fa-spin"></i> Waiting for Task...</h2>
+            <p>The AegisMesh orchestrator is selecting clients for the next round.</p>
+        </div>
+
+        <!-- Screen 3: Interactive Control Panel -->
+        <div id="control-screen" class="screen">
+            <div class="client-info">Client ID: <span id="client-id-display-2"></span></div>
+            <h2 id="task-title">Task: Arrhythmia Detection</h2>
+            
+            <!-- Step 1: Data Selection -->
+            <div id="step-data" class="step active">
+                <h3>1. Select Your Local Data</h3>
+                <p>Your private data never leaves your device. Select snippets to use for training.</p>
+                <div id="data-grid" class="data-grid"></div>
+                <div id="data-box" class="data-box">Your Client's Secure Enclave</div>
+                <button id="confirm-data-btn" class="button-primary" disabled>Confirm Data Selection</button>
+            </div>
+            
+            <!-- Step 2: Actions -->
+            <div id="step-actions" class="step">
+                <h3>2. Perform Local Operations</h3>
+                <p>All computations happen here. Click the buttons in order.</p>
+                <div class="action-list">
+                    <button class="action-btn" data-action="stake"><span>1.</span> <i class="fas fa-coins"></i> Stake Tokens</button>
+                    <button class="action-btn" data-action="train"><span>2.</span> <i class="fas fa-brain"></i> Train Model (5 Epochs)</button>
+                    <button class="action-btn" data-action="encrypt"><span>3.</span> <i class="fas fa-shield-halved"></i> Apply SHE Encryption</button>
+                    <button class="action-btn" data-action="dp"><span>4.</span> <i class="fas fa-user-secret"></i> Apply Differential Privacy</button>
+                    <button class="action-btn" data-action="send"><span>5.</span> <i class="fas fa-paper-plane"></i> Send Encrypted Update</button>
+                </div>
+            </div>
+
+             <!-- Step 3: Rewarded -->
+            <div id="step-rewarded" class="step">
+                <h3><i class="fas fa-check-circle"></i> Round Complete!</h3>
+                <p id="reward-message">You've been rewarded for your contribution!</p>
+                <button id="next-round-btn" class="button-primary">Wait for Next Round</button>
+                 <div class="auto-loop-toggle">
+                    <label for="auto-loop">Automate Future Rounds?</label>
+                    <input type="checkbox" id="auto-loop" class="toggle-switch">
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/controller.js"></script>
+</body>
+</html>
