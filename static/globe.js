@@ -1,11 +1,11 @@
 const GLOBE_RADIUS = 100;
-const CLIENT_POINT_RADIUS = 0.8;
+const CLIENT_POINT_RADIUS = 0.7;
 const SERVER_POINT_RADIUS = 2.0;
-// --- NEW: Pulse constants ---
 const PULSE_CYLINDER_HEIGHT = 5;
-const PULSE_MAIN_RADIUS = 0.6;
-const PULSE_GLOW_RADIUS = 1.2;
-const ARC_THICKNESS = 0.4;
+const PULSE_MAIN_RADIUS = 0.8;
+// --- FIX: Increased glow radius for more effect ---
+const PULSE_GLOW_RADIUS = 1.5; 
+const ARC_THICKNESS = 0.25;
 
 
 function latLonToVector3(lat, lon, radius) {
@@ -36,6 +36,9 @@ function createGlobe(container) {
     let serverPoint = null;
     let activeArcs = new Map();
     let activePulses = [];
+
+    // --- FIX: Define the cylinder's default 'up' vector once ---
+    const cylinderUp = new THREE.Vector3(0, 1, 0);
 
     function init() {
         scene = new THREE.Scene();
@@ -79,9 +82,9 @@ function createGlobe(container) {
         const cloudMaterial = new THREE.MeshLambertMaterial({
             map: cloudTexture,
             transparent: true,
-            opacity: 0.2
+            opacity: 0.15
         });
-        const cloudGeometry = new THREE.SphereGeometry(GLOBE_RADIUS + 2, 64, 64);
+        const cloudGeometry = new THREE.SphereGeometry(GLOBE_RADIUS + 0.5, 64, 64);
         cloudsMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
         scene.add(cloudsMesh);
 
@@ -92,7 +95,7 @@ function createGlobe(container) {
             side: THREE.BackSide,
             transparent: true
         });
-        const atmosphereGeometry = new THREE.SphereGeometry(GLOBE_RADIUS * 1.04, 64, 64);
+        const atmosphereGeometry = new THREE.SphereGeometry(GLOBE_RADIUS * 1.01, 64, 64);
         const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
         scene.add(atmosphere);
 
@@ -103,13 +106,7 @@ function createGlobe(container) {
 
         composer = new THREE.EffectComposer(renderer);
         const renderScene = new THREE.RenderPass(scene, camera);
-        // --- FIX: Increased bloom strength for more glow ---
-        const bloomPass = new THREE.UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.7, // Strength
-            0.5, // Radius
-            0.85 // Threshold
-        );
+        const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85);
         composer.addPass(renderScene);
         composer.addPass(bloomPass);
 
@@ -154,33 +151,32 @@ function createGlobe(container) {
         activeArcs.clear();
     }
 
-    // --- FIX: Upgraded Pulse with Cylinder and Glow ---
     function triggerPulse(clientId) {
         const key = `arc-${clientId}`;
         if (!activeArcs.has(key)) return;
 
         const { curve } = activeArcs.get(key);
         
-        // Main Pulse Cylinder
         const pulseGeom = new THREE.CylinderGeometry(PULSE_MAIN_RADIUS, PULSE_MAIN_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
-        const pulseMat = new THREE.MeshBasicMaterial({ color: 0x0077FF }); // Darker blue
+        const pulseMat = new THREE.MeshBasicMaterial({ color: 0x0077FF });
         const pulseMesh = new THREE.Mesh(pulseGeom, pulseMat);
 
-        // Glow effect cylinder
         const glowGeom = new THREE.CylinderGeometry(PULSE_GLOW_RADIUS, PULSE_GLOW_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
+        // --- FIX: Brighter color and lower opacity for better glow ---
         const glowMat = new THREE.MeshBasicMaterial({
-            color: 0x00B4D8, // Lighter teal for the glow
+            color: 0x80DEEA, // Very light cyan
             transparent: true,
-            opacity: 0.4
+            opacity: 0.3
         });
         const glowMesh = new THREE.Mesh(glowGeom, glowMat);
-        pulseMesh.add(glowMesh); // Attach glow to the main pulse
+        pulseMesh.add(glowMesh);
         
         const pulse = {
             mesh: pulseMesh,
             curve: curve,
             progress: 0,
-            speed: 0.008
+            speed: 0.008,
+            quaternion: new THREE.Quaternion() // Pre-create quaternion for performance
         };
         activePulses.push(pulse);
         earthMesh.add(pulseMesh);
@@ -193,7 +189,7 @@ function createGlobe(container) {
 
             if (pulse.progress >= 1) {
                 earthMesh.remove(pulse.mesh);
-                pulse.mesh.traverse(child => { // Dispose geometries of children too
+                pulse.mesh.traverse(child => {
                     if (child.geometry) child.geometry.dispose();
                     if (child.material) child.material.dispose();
                 });
@@ -202,10 +198,10 @@ function createGlobe(container) {
                 const currentPos = pulse.curve.getPoint(pulse.progress);
                 pulse.mesh.position.copy(currentPos);
                 
-                // --- FIX: Orient the cylinder to follow the curve ---
-                const nextProgress = Math.min(pulse.progress + 0.01, 1);
-                const nextPos = pulse.curve.getPoint(nextProgress);
-                pulse.mesh.lookAt(nextPos);
+                // --- FIX: Correctly orient the cylinder along the curve's tangent ---
+                const tangent = pulse.curve.getTangent(pulse.progress).normalize();
+                pulse.quaternion.setFromUnitVectors(cylinderUp, tangent);
+                pulse.mesh.quaternion.copy(pulse.quaternion);
             }
         }
     }
@@ -235,11 +231,9 @@ function createGlobe(container) {
 
     function updateClientPoints(connectedClients) {
         const connectedClientIds = connectedClients.map(c => c.id);
-
         connectedClients.forEach(client => {
             if (client.location) {
                 const pos = latLonToVector3(client.location.lat, client.location.lon, GLOBE_RADIUS);
-                
                 if (clientPoints.has(client.id)) {
                     clientPoints.get(client.id).visible = true;
                 } else {
@@ -252,11 +246,8 @@ function createGlobe(container) {
                 }
             }
         });
-        
         clientPoints.forEach((point, id) => {
-            if (!connectedClientIds.includes(id)) {
-                point.visible = false;
-            }
+            if (!connectedClientIds.includes(id)) point.visible = false;
         });
     }
     

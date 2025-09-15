@@ -21,6 +21,7 @@ TenSEAL/
 
 # Data directory - ignore its contents but not the folder itself
 src/data/*
+results/
 !src/data/.gitkeep
 
 # IDE and OS files

@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const taskSelectContainer = document.getElementById('task-select-container');
     const selectedTaskDisplay = document.getElementById('selected-task-display');
     const taskOptionsList = document.getElementById('task-options-list');
+    const economicsTabs = document.querySelectorAll('.tab');
+    const economicsTabContents = document.querySelectorAll('.tab-content');
 
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
@@ -40,22 +42,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- SMART RENDER FUNCTION ---
     function render() {
         const prev = state._prevState;
-        const curr = state;
+        // const curr = state; // Not strictly needed with this structure
 
-        if (JSON.stringify(prev.tasks) !== JSON.stringify(curr.tasks)) {
+        if (JSON.stringify(prev.tasks) !== JSON.stringify(state.tasks)) {
             updateTaskSelector();
             updateTaskDetails();
             updateAccuracyChart();
-            updateLiveAccuracy(); // NEW
+            updateLiveAccuracy();
             updateGlobeArcs(); 
-            generateLiveLogsAndPulses(prev, curr); 
+            generateLiveLogsAndPulses(prev, state); 
         }
 
-        if (JSON.stringify(prev.network) !== JSON.stringify(curr.network)) {
+        if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
             updateGlobePointsAndArcs();
         }
 
-        if (JSON.stringify(prev.tokenomics) !== JSON.stringify(curr.tokenomics)) {
+        if (JSON.stringify(prev.tokenomics) !== JSON.stringify(state.tokenomics)) {
             updateNetworkEconomics();
         }
     }
@@ -90,23 +92,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentTaskIds = Object.keys(state.tasks);
         if (currentTaskIds.length === 0) return;
 
-        // Set initial task if not set
         if (!state.selectedTaskId && currentTaskIds.length > 0) {
             state.selectedTaskId = currentTaskIds[0];
         }
 
-        // Update display
         const selectedTaskName = state.selectedTaskId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         selectedTaskDisplay.querySelector('span').textContent = selectedTaskName;
 
-        // Rebuild options list
         taskOptionsList.innerHTML = '';
         currentTaskIds.forEach(taskId => {
             const option = document.createElement('div');
             option.className = 'task-option';
-            if (taskId === state.selectedTaskId) {
-                option.classList.add('selected');
-            }
+            if (taskId === state.selectedTaskId) option.classList.add('selected');
             option.dataset.value = taskId;
             option.textContent = taskId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             taskOptionsList.appendChild(option);
@@ -122,7 +119,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('task-progress').textContent = `${task.current_round || 0} / ${task.total_rounds || 0} Rounds`;
     }
     
-    // NEW: Function to update the Live Accuracy card
     function updateLiveAccuracy() {
         if (!state.selectedTaskId || !state.tasks[state.selectedTaskId]) return;
         const task = state.tasks[state.selectedTaskId];
@@ -145,7 +141,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const task = state.tasks[state.selectedTaskId];
         const chart = state.charts.accuracyChart;
         const metricLabel = task.metric.toUpperCase();
-        document.getElementById('accuracy-chart-header').textContent = `Global Model Performance`;
+
+        // THE FIX: Add a safety check for the element
+        const chartHeader = document.getElementById('accuracy-chart-header');
+        if (chartHeader) {
+            chartHeader.textContent = `Global Model Performance`;
+        }
+
         const history = task.metric_history;
         chart.data.labels = history.map((_, i) => i);
         chart.data.datasets[0].label = metricLabel;
@@ -156,13 +158,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateNetworkEconomics() {
         document.getElementById('connected-clients-count').textContent = state.network.connected_clients?.length || 0;
-        const leaderboardBody = document.querySelector("#leaderboard-table tbody");
-        leaderboardBody.innerHTML = '';
+        
+        // Placeholder for TPS data when available from the backend
+        // document.getElementById('live-tps').textContent = state.network.tps || '--';
+
+        const globalLeaderboardBody = document.querySelector("#leaderboard-table-global tbody");
+        const taskLeaderboardBody = document.querySelector("#leaderboard-table-task tbody");
+        
+        globalLeaderboardBody.innerHTML = '';
+        taskLeaderboardBody.innerHTML = '';
+
         let totalStake = 0;
         if (state.tokenomics) {
             Object.entries(state.tokenomics).forEach(([clientId, account]) => {
-                const row = leaderboardBody.insertRow();
-                row.innerHTML = `<td>${clientId}</td><td>${account.stake.toFixed(2)}</td><td>${account.balance.toFixed(2)}</td>`;
+                const rowHtml = `<td>${clientId}</td><td>${account.stake.toFixed(2)}</td><td>${account.balance.toFixed(2)}</td>`;
+                globalLeaderboardBody.insertRow().innerHTML = rowHtml;
+                taskLeaderboardBody.insertRow().innerHTML = rowHtml;
                 totalStake += account.stake;
             });
         }
@@ -207,17 +218,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function fetchData() {
         try {
-            const [statusResponse, tokenomicsResponse] = await Promise.all([
-                fetch('/status'),
-                fetch('/tokenomics')
-            ]);
-
+            const [statusResponse, tokenomicsResponse] = await Promise.all([ fetch('/status'), fetch('/tokenomics') ]);
             if (!statusResponse.ok || !tokenomicsResponse.ok) throw new Error('Network response was not ok');
-            
             const statusData = await statusResponse.json();
             const tokenomicsData = await tokenomicsResponse.json();
             
             state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network, tokenomics: state.tokenomics }));
+            
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
             state.tokenomics = tokenomicsData;
@@ -233,15 +240,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // --- EVENT LISTENERS for Custom Select ---
-    selectedTaskDisplay.addEventListener('click', () => {
-        taskSelectContainer.classList.toggle('open');
-    });
+    // --- EVENT LISTENERS ---
+    selectedTaskDisplay.addEventListener('click', () => taskSelectContainer.classList.toggle('open'));
 
     taskOptionsList.addEventListener('click', (e) => {
         const option = e.target.closest('.task-option');
         if (!option) return;
-
         const newTaskId = option.dataset.value;
         if (newTaskId !== state.selectedTaskId) {
             state.selectedTaskId = newTaskId;
@@ -257,30 +261,29 @@ document.addEventListener('DOMContentLoaded', () => {
         taskSelectContainer.classList.remove('open');
     });
     
-    // Close dropdown if clicked outside
     window.addEventListener('click', (e) => {
-        if (!taskSelectContainer.contains(e.target)) {
-            taskSelectContainer.classList.remove('open');
-        }
+        if (!taskSelectContainer.contains(e.target)) taskSelectContainer.classList.remove('open');
+    });
+
+    economicsTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            economicsTabs.forEach(t => t.classList.remove('active'));
+            economicsTabContents.forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(`tab-content-${tab.dataset.tab}`).classList.add('active');
+        });
     });
 
     // --- INITIALIZATION ---
     function initializeDashboard() {
         logEvent('Dashboard Initialized. Connecting to server...');
         if (typeof Chart === 'undefined' || typeof THREE === 'undefined' || typeof createGlobe === 'undefined') {
-            logEvent('Error: A required library failed to load.', 'error');
-            return;
+            logEvent('Error: A required library failed to load.', 'error'); return;
         }
-
         initializeAccuracyChart();
         const globeContainer = document.getElementById('globe-container');
-        if (globeContainer) {
-            state.globe = createGlobe(globeContainer);
-        }
-        
-        if (document.visibilityState === 'visible') {
-            startPolling();
-        }
+        if (globeContainer) state.globe = createGlobe(globeContainer);
+        if (document.visibilityState === 'visible') startPolling();
     }
 
     let fetchDataInterval;
@@ -289,12 +292,8 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchData();
         fetchDataInterval = setInterval(fetchData, 5000);
     }
-    function stopPolling() {
-        clearInterval(fetchDataInterval);
-    }
-    document.addEventListener('visibilitychange', () => {
-        document.visibilityState === 'visible' ? startPolling() : stopPolling();
-    });
+    function stopPolling() { clearInterval(fetchDataInterval); }
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? startPolling() : stopPolling());
     
     initializeDashboard();
 });
