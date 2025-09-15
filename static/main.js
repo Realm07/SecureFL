@@ -18,7 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const economicsTabContents = document.querySelectorAll('.tab-content');
     const taskBuilderForm = document.getElementById('task-builder-form');
     const marketplaceGrid = document.getElementById('marketplace-grid');
-
+    const rotationToggle = document.getElementById('toggle-rotation');
+    const cloudsToggle = document.getElementById('toggle-clouds');
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
         const logEntry = document.createElement('div');
@@ -59,11 +60,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // --- GLOBE UPDATE LOGIC ---
     function updateGlobePointsAndArcs() {
         if (!state.globe) return;
         const connectedClients = state.network.connected_clients || [];
-        state.globe.updateClientPoints(connectedClients);
+        // --- MODIFIED: Pass tokenomics data to the globe ---
+        state.globe.updateClientPoints(connectedClients, state.tokenomics);
         updateGlobeArcs();
     }
 
@@ -145,27 +146,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function generateLiveLogsAndPulses(prevState, currentState) {
         if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) return;
+
         for (const taskId in currentState.tasks) {
             const prevTask = prevState.tasks[taskId] || { current_round: 0, status: '', metric_history: [], selected_clients: [] };
             const currentTask = currentState.tasks[taskId];
+            
             if (currentTask.current_round > prevTask.current_round) {
                 const metricName = currentTask.metric.toUpperCase();
                 const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
                 logEvent(`Task '${taskId}' round ${currentTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
+
+                // --- NEW: Trigger server glow and broadcast pulses on aggregation ---
+                if (state.globe && taskId === state.selectedTaskId) {
+                    state.globe.triggerServerGlow();
+                    const participatingClients = currentTask.selected_clients || [];
+                    
+                    participatingClients.forEach((clientId, index) => {
+                        // Add a small delay to create a "wave" effect
+                        setTimeout(() => {
+                            state.globe.triggerBroadcastPulse(clientId);
+                        }, index * 100); 
+                    });
+                }
+                // ----------------------------------------------------------------------
             }
-            if (currentTask.status !== prevTask.status) { logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`); }
+            if (currentTask.status !== prevTask.status) {
+                logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`);
+            }
+
             if (state.selectedTaskId === taskId && state.globe) {
                 const newlyReadyClients = (currentTask.selected_clients || []).filter(id => !(prevTask.selected_clients || []).includes(id));
+                
                 newlyReadyClients.forEach(clientId => {
                     logEvent(`Client #${clientId} finished training for task '${taskId}'.`, 'success');
                     state.globe.triggerPulse(clientId);
                 });
             }
         }
+
         const prevClients = (prevState.network.connected_clients || []).map(c => c.id);
         const currentClients = (currentState.network.connected_clients || []).map(c => c.id);
-        currentClients.filter(id => !prevClients.includes(id)).forEach(id => logEvent(`Client #${id} connected.`));
-        prevClients.filter(id => !currentClients.includes(id)).forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
+        const connected = currentClients.filter(id => !prevClients.includes(id));
+        const disconnected = prevClients.filter(id => !currentClients.includes(id));
+        connected.forEach(id => logEvent(`Client #${id} connected.`));
+        disconnected.forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
     }
 
     // --- NEW: MARKETPLACE UI UPDATE ---
@@ -234,8 +258,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const newTaskId = option.dataset.value;
         if (newTaskId !== state.selectedTaskId) {
             state.selectedTaskId = newTaskId;
-            if (state.globe) { state.globe.clearAllArcs(); updateGlobeArcs(); }
-            updateTaskSelector(); updateTaskDetails(); updateAccuracyChart(); updateLiveAccuracy();
+            
+            // --- NEW: Animate camera on task change ---
+            const newTask = state.tasks[newTaskId];
+            if (state.globe && newTask && newTask.server_location) {
+                state.globe.flyTo(newTask.server_location);
+            }
+            // -------------------------------------------
+
+            if (state.globe) {
+                state.globe.clearAllArcs();
+                updateGlobeArcs();
+            }
+            updateTaskSelector();
+            updateTaskDetails();
+            updateAccuracyChart();
+            updateLiveAccuracy();
         }
         taskSelectContainer.classList.remove('open');
     });
@@ -248,7 +286,17 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById(`tab-content-${tab.dataset.tab}`).classList.add('active');
         });
     });
+    rotationToggle.addEventListener('change', (e) => {
+        if (state.globe) {
+            state.globe.toggleRotation(e.target.checked);
+        }
+    });
 
+    cloudsToggle.addEventListener('change', (e) => {
+        if (state.globe) {
+            state.globe.toggleClouds(e.target.checked);
+        }
+    });
     // --- NEW: VIEW SWITCHING LISTENER ---
     sidebarNav.addEventListener('click', (e) => {
         const link = e.target.closest('a');
