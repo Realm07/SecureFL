@@ -107,3 +107,69 @@ th { font-weight: 500; color: var(--text-secondary); text-transform: uppercase; 
 #task-builder-form .form-actions { margin-top: 20px; text-align: right; }
 .button-primary { background-color: var(--accent-purple); color: white; border: none; padding: 12px 24px; border-radius: 5px; font-weight: 600; cursor: pointer; transition: background-color 0.2s; }
 .button-primary:hover { background-color: #7022d9; }
+
+.controls-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.control-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-secondary);
+}
+.toggle-switch {
+    appearance: none;
+    width: 40px;
+    height: 22px;
+    background-color: var(--bg-main);
+    border: 1px solid var(--border-color);
+    border-radius: 11px;
+    position: relative;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.toggle-switch::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: var(--text-secondary);
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s, background-color 0.2s;
+}
+.toggle-switch:checked {
+    background-color: var(--accent-purple);
+}
+.toggle-switch:checked::before {
+    background-color: white;
+    transform: translateX(18px);
+}
+.globe-tooltip {
+    position: absolute;
+    display: none;
+    padding: 8px 12px;
+    background-color: rgba(24, 28, 40, 0.9); /* --bg-card with alpha */
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 12px;
+    pointer-events: none; /* Important so it doesn't block mouse events */
+    white-space: nowrap;
+    z-index: 100;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transform: translate(-50%, 0); /* Helps center it a bit */
+}
+
+.globe-tooltip strong {
+    color: var(--accent-purple);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 4px;
+}
+.globe-tooltip div {
+    color: var(--text-secondary);
+}
