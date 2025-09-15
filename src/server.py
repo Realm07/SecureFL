@@ -13,6 +13,8 @@ import csv
 import io
 import hashlib
 from enum import Enum
+from pydantic import BaseModel
+import secrets
 
 from .config import get_config
 from .models import get_model
@@ -253,6 +255,36 @@ class FederationTask:
         while len(self.clients_ready_for_round.get(round_num, [])) < num_expected:
             await asyncio.sleep(1)
 
+class ControllerClient(BaseModel):
+    client_id: int
+    session_token: str = secrets.token_hex(16)
+    current_step: str = "login"
+    is_locked: bool = True
+    task_id: str | None = None
+    round: int | None = None
+
+
+class ControllerManager:
+    def __init__(self):
+        # Maps a client ID to its controller session
+        self.sessions: Dict[int, ControllerClient] = {}
+        # Predefined slots for viewers to join
+        self.available_slots: List[int] = list(range(10, 20)) # e.g., clients 10-19 are for viewers
+
+    def join_session(self, client_id: int) -> ControllerClient | None:
+        if client_id in self.available_slots and self.sessions.get(client_id) is None:
+            session = ControllerClient(client_id=client_id)
+            self.sessions[client_id] = session
+            return session
+        return None
+
+    def get_session(self, client_id: int) -> ControllerClient | None:
+        return self.sessions.get(client_id)
+
+    def remove_session(self, client_id: int):
+        if client_id in self.sessions:
+            del self.sessions[client_id]
+
 class ServerManager:
     def __init__(self):
         self.connected_clients: Dict[int, WebSocket] = {}
@@ -268,6 +300,8 @@ class ServerManager:
         self.context = ts.context(ts.SCHEME_TYPE.CKKS, POLY_MOD_DEGREE, coeff_mod_bit_sizes=[60, 48, 48, 60])
         self.context.generate_galois_keys()
         self.context.global_scale = 2**48
+        self.controller_manager = ControllerManager()
+        self.ADMIN_SECRET = "aegis-admin-secret"
 
     async def _send_to_client_safely(self, client: WebSocket, message: str):
         try:
@@ -296,6 +330,62 @@ class ServerManager:
         return new_task
 
 manager = ServerManager()
+
+class JoinRequest(BaseModel):
+    client_id: int
+
+@app.post("/controller/join")
+async def controller_join(request: JoinRequest):
+    session = manager.controller_manager.join_session(request.client_id)
+    if session:
+        # Also register this new client in the tokenomics system
+        manager.token_manager.register_client(request.client_id)
+        return {"message": "Joined successfully!", "session_token": session.session_token, "client_id": session.client_id}
+    return JSONResponse(status_code=409, content={"error": "Slot is already taken or invalid."})
+
+@app.get("/controller/slots")
+async def get_available_slots():
+    active_sessions = manager.controller_manager.sessions.keys()
+    return {"available": [slot for slot in manager.controller_manager.available_slots if slot not in active_sessions]}
+
+class ActionRequest(BaseModel):
+    client_id: int
+    session_token: str
+    action: str
+    payload: dict = {}
+
+@app.post("/controller/action")
+async def controller_action(request: ActionRequest):
+    session = manager.controller_manager.get_session(request.client_id)
+    if not session or session.session_token != request.session_token:
+        return JSONResponse(status_code=403, content={"error": "Invalid session."})
+    
+    # Here you would add logic to proxy the action to the actual client
+    # For now, we'll just log it and update the state.
+    print(f"CONTROLLER: Received action '{request.action}' for client #{request.client_id} with payload: {request.payload}")
+    
+    # Example state transition
+    if request.action == "select_data":
+        session.current_step = "ready_to_train"
+    elif request.action == "train":
+        session.current_step = "ready_to_encrypt"
+    # ... and so on
+    
+    return {"message": f"Action '{request.action}' acknowledged.", "next_step": session.current_step}
+
+class AdminActionRequest(BaseModel):
+    client_id: int
+    secret: str
+
+@app.post("/admin/kick")
+async def admin_kick_client(request: AdminActionRequest):
+    if request.secret != manager.ADMIN_SECRET:
+        return JSONResponse(status_code=403, content={"error": "Unauthorized"})
+    
+    manager.controller_manager.remove_session(request.client_id)
+    # You might also want to disconnect the websocket if it's a real client
+    print(f"ADMIN: Kicked client #{request.client_id}")
+    return {"message": f"Client #{request.client_id} has been kicked."}
 
 async def sync_orchestrator_loop(task: FederationTask):
     while not task.is_complete():

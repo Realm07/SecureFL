@@ -38,24 +38,23 @@ class TokenManager:
             print(f"ERROR: Could not save tokenomics accounts to disk: {e}")
 
     def register_client(self, client_id: int):
-        """
-        Registers a new client, giving them an initial balance and stake if they don't exist.
-        """
         if client_id not in self.accounts:
             print(f"INFO: Registering new Client #{client_id} in token economy.")
             self.accounts[client_id] = {
                 "balance": self.initial_balance,
-                "stake": self.initial_stake
+                "stake": {} # Stake is now a dictionary of stakes per task
             }
-            self.accounts[client_id]["balance"] -= self.initial_stake
+            # Auto-stake in a default task for initial eligibility
+            self.stake_tokens(client_id, self.initial_stake, "arrhythmia")
             self.save_accounts()
 
     def has_sufficient_stake(self, client_id: int, required_stake: float) -> bool:
-        """Checks if a client has at least the required amount staked."""
         if client_id not in self.accounts:
             return False
-        return self.accounts[client_id].get("stake", 0) >= required_stake
-
+        # Check total stake across all tasks
+        total_stake = sum(self.accounts[client_id].get("stake", {}).values())
+        return total_stake >= required_stake
+    
     def reward_clients(self, client_ids: list[int], reward_amount: float):
         """Adds a reward amount to the balance of each participating client."""
         for client_id in client_ids:
@@ -80,25 +79,18 @@ class TokenManager:
         """Returns a copy of all account data."""
         return self.accounts.copy()
 
-    # --- NEW: Interactive Staking Logic ---
     def stake_tokens(self, client_id: int, amount: float, task_id: str) -> Tuple[bool, str]:
-        """
-        Allows a client to stake a specified amount of tokens from their balance.
-        Returns a success/fail boolean and a message.
-        """
         if client_id not in self.accounts:
             return False, f"Client #{client_id} not found."
-        
         if amount <= 0:
             return False, "Stake amount must be positive."
-            
         account = self.accounts[client_id]
         if account["balance"] < amount:
-            return False, f"Insufficient balance. Available: {account['balance']:.2f}, Tried to stake: {amount:.2f}"
-            
-        # Move tokens from balance to stake
+            return False, f"Insufficient balance. Available: {account['balance']:.2f}, Tried: {amount:.2f}"
+        
+        # Move tokens from balance to stake for a specific task
         account["balance"] -= amount
-        account["stake"] += amount
+        account["stake"][task_id] = account["stake"].get(task_id, 0) + amount
         
         print(f"INFO: Client #{client_id} staked {amount:.2f} tokens for task '{task_id}'.")
         self.save_accounts()
