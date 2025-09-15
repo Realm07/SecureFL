@@ -118,10 +118,10 @@ class DataManager:
         
         print(f"    - Created {len(features)} sequences for {os.path.basename(files[0])}")
         
-        # --- THE FIX ---
-        # Ensure labels are correctly shaped here as well.
+        # --- FIX: Ensure labels tensor has the correct shape [n_samples, 1] ---
         features_tensor = torch.tensor(np.array(features), dtype=torch.float32)
         labels_tensor = torch.tensor(np.array(labels), dtype=torch.float32).view(-1, 1)
+        # ------------------------------------------------------------------------
         return TensorDataset(features_tensor, labels_tensor)
     
     def get_client_data(self, task_id, client_id):

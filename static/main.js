@@ -1,5 +1,3 @@
-// static/main.js
-
 document.addEventListener('DOMContentLoaded', () => {
     // --- STATE MANAGEMENT ---
     let state = {
@@ -9,15 +7,15 @@ document.addEventListener('DOMContentLoaded', () => {
         tokenomics: {},
         charts: { accuracyChart: null },
         globe: null,
-        // --- NEW: STORE PREVIOUS STATE FOR COMPARISON ---
         _prevState: {} 
     };
-
 
     // --- DOM ELEMENT REFERENCES ---
     const taskSelect = document.getElementById('task-select');
     const eventLog = document.getElementById('event-log');
-    // ... (add other element references here as needed)
+    const connectionStatusDot = document.getElementById('connection-status-dot');
+    const connectionStatusText = document.getElementById('connection-status-text');
+
 
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
@@ -33,121 +31,117 @@ document.addEventListener('DOMContentLoaded', () => {
         const ctx = document.getElementById('accuracy-chart').getContext('2d');
         state.charts.accuracyChart = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Metric',
-                    data: [],
-                    borderColor: '#8c7ae6',
-                    backgroundColor: 'rgba(140, 122, 230, 0.2)',
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: false },
-                    x: { title: { display: true, text: 'Round' } }
-                }
-            }
+            data: { labels: [], datasets: [{ label: 'Metric', data: [], borderColor: '#8c7ae6', backgroundColor: 'rgba(140, 122, 230, 0.2)', fill: true, tension: 0.3 }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false }, x: { title: { display: true, text: 'Round' } } } }
         });
     }
+
+    // --- SMART RENDER FUNCTION ---
     function render() {
-        if (!state.tasks || Object.keys(state.tasks).length === 0) {
-            // Don't render if we have no task data yet
-            return;
+        const prev = state._prevState;
+        const curr = state;
+
+        if (JSON.stringify(prev.tasks) !== JSON.stringify(curr.tasks)) {
+            updateTaskSelector();
+            updateTaskDetails();
+            updateAccuracyChart();
+            updateGlobeArcs(); // Arcs depend on task (server location)
+            generateLiveLogsAndPulses(prev, curr); 
         }
-        updateTaskSelector();
-        updateTaskDetails();
-        updateAccuracyChart();
-        updateNetworkEconomics();
-        updateGlobe(); // Replaces updateNetworkStatus
+
+        if (JSON.stringify(prev.network) !== JSON.stringify(curr.network)) {
+            updateGlobePointsAndArcs(); // Points and arcs depend on connected clients
+        }
+
+        if (JSON.stringify(prev.tokenomics) !== JSON.stringify(curr.tokenomics)) {
+            updateNetworkEconomics();
+        }
     }
     
-    // --- CONSOLIDATE GLOBE/NETWORK UPDATES ---
-    function updateGlobe() {
+    // --- REFINED GLOBE UPDATE LOGIC ---
+    function updateGlobePointsAndArcs() {
+        if (!state.globe) return;
+        const connectedClients = state.network.connected_clients || [];
+        
+        // 1. Update the client points (dots on cities)
+        state.globe.updateClientPoints(connectedClients);
+        
+        // 2. Update arcs based on connection status
+        updateGlobeArcs();
+    }
+
+    function updateGlobeArcs() {
         if (!state.globe) return;
         const task = state.tasks[state.selectedTaskId];
         const serverLocation = task ? task.server_location : null;
-        
         const connectedClients = state.network.connected_clients || [];
-        state.globe.updateClientAndServerPoints(connectedClients, serverLocation);
         
-        if (task) {
-            const activeArcClientIds = task.selected_clients || [];
-            const allClientIds = connectedClients.map(c => c.id);
+        // Update the central server point
+        state.globe.updateServerPoint(serverLocation);
 
-            activeArcClientIds.forEach(clientId => {
-                const client = connectedClients.find(c => c.id === clientId);
-                if (client && client.location && serverLocation) {
-                    state.globe.addOrUpdateArc(client.id, client.location, serverLocation);
-                }
-            });
+        // Arcs are now based on who is CONNECTED, not who is SELECTED
+        const connectedClientIds = connectedClients.map(c => c.id);
 
-            allClientIds.forEach(clientId => {
-                if (!activeArcClientIds.includes(clientId)) {
-                    state.globe.removeArc(clientId);
-                }
-            });
-        }
+        // Add/update arcs for all currently connected clients to the current server
+        connectedClients.forEach(client => {
+            if (client.location && serverLocation) {
+                state.globe.addOrUpdateArc(client.id, client.location, serverLocation);
+            }
+        });
+
+        // Remove arcs for any client that has disconnected
+        state.globe.removeInactiveArcs(connectedClientIds);
     }
-    // --- UI UPDATE FUNCTIONS ---
+
+
+    // --- UI UPDATE FUNCTIONS (No changes needed in these helpers) ---
     function updateTaskSelector() {
-        // Clear previous options
+        const currentTaskIds = Object.keys(state.tasks);
+        const existingOptionIds = Array.from(taskSelect.options).map(o => o.value);
+
+        if (JSON.stringify(currentTaskIds) === JSON.stringify(existingOptionIds)) return;
+
         taskSelect.innerHTML = '';
-        Object.keys(state.tasks).forEach(taskId => {
+        currentTaskIds.forEach(taskId => {
             const option = document.createElement('option');
             option.value = taskId;
-            option.textContent = taskId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()); // Nicer name
+            option.textContent = taskId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             taskSelect.appendChild(option);
         });
-        // If no task is selected, select the first one
-        if (!state.selectedTaskId && Object.keys(state.tasks).length > 0) {
-            state.selectedTaskId = Object.keys(state.tasks)[0];
+        if (!state.selectedTaskId && currentTaskIds.length > 0) {
+            state.selectedTaskId = currentTaskIds[0];
         }
         taskSelect.value = state.selectedTaskId;
     }
+
     function updateTaskDetails() {
         if (!state.selectedTaskId || !state.tasks[state.selectedTaskId]) return;
-        
         const task = state.tasks[state.selectedTaskId];
-
-        // --- FIX: CHECK FOR TASK EXISTENCE AND MATCH API RESPONSE ---
-        // The /status API puts model_name directly in the task object, not in a 'config' sub-object.
-        // Let's add checks to prevent errors if the task data hasn't arrived yet.
         document.getElementById('task-model-name').textContent = task.model_name || '--';
         document.getElementById('task-privacy-profile').textContent = (task.privacy_profile || '--').toUpperCase().replace('_', ' + ');
         document.getElementById('task-status').textContent = task.status || '--';
         document.getElementById('task-progress').textContent = `${task.current_round || 0} / ${task.total_rounds || 0} Rounds`;
     }
+
     function updateAccuracyChart() {
         if (!state.selectedTaskId || !state.tasks[state.selectedTaskId] || !state.charts.accuracyChart) return;
-
         const task = state.tasks[state.selectedTaskId];
         const chart = state.charts.accuracyChart;
-        
         const metricLabel = task.metric.toUpperCase();
         document.getElementById('accuracy-chart-header').textContent = `Global Model ${metricLabel}`;
-        
         const history = task.metric_history;
-        chart.data.labels = history.map((_, i) => i); // Rounds 0, 1, 2...
+        chart.data.labels = history.map((_, i) => i);
         chart.data.datasets[0].label = metricLabel;
         chart.data.datasets[0].data = history;
-        chart.options.scales.y.beginAtZero = (metricLabel !== 'RMSE'); // Don't start RMSE at 0
-        
+        chart.options.scales.y.beginAtZero = (metricLabel !== 'RMSE');
         chart.update();
     }
-    function updateNetworkEconomics() {
-        // Update client count from network info
-        document.getElementById('connected-clients-count').textContent = state.network.connected_clients_count || 0;
 
-        // Update leaderboard and total stake from tokenomics
+    function updateNetworkEconomics() {
+        document.getElementById('connected-clients-count').textContent = state.network.connected_clients?.length || 0;
         const leaderboardBody = document.querySelector("#leaderboard-table tbody");
-        leaderboardBody.innerHTML = ''; // Clear table
+        leaderboardBody.innerHTML = '';
         let totalStake = 0;
-        
         if (state.tokenomics) {
             Object.entries(state.tokenomics).forEach(([clientId, account]) => {
                 const row = leaderboardBody.insertRow();
@@ -157,41 +151,57 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         document.getElementById('total-stake').textContent = `${totalStake.toFixed(2)} PHOENIX`;
     }
-    function generateLiveLogs(prevState, currentState) {
-        if (!prevState.tasks) return; // Don't log on the very first fetch
 
-        // Log task status changes
+    // --- PULSE TRIGGER LOGIC ---
+    function generateLiveLogsAndPulses(prevState, currentState) {
+        if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) return;
+
         for (const taskId in currentState.tasks) {
-            const prevTask = prevState.tasks[taskId] || {};
+            const prevTask = prevState.tasks[taskId] || { current_round: 0, status: '', metric_history: [], selected_clients: [] };
             const currentTask = currentState.tasks[taskId];
-
+            
+            // Log round completion
             if (currentTask.current_round > prevTask.current_round) {
                 const metricName = currentTask.metric.toUpperCase();
                 const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
                 logEvent(`Task '${taskId}' round ${prevTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
             }
+            // Log status change
             if (currentTask.status !== prevTask.status) {
                  logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`);
             }
+
+            // --- TRIGGER PULSES ---
+            // If we are viewing the current task, check for new clients that finished training
+            if (state.selectedTaskId === taskId && state.globe) {
+                const prevReadyClients = prevTask.selected_clients || [];
+                const currentReadyClients = currentTask.selected_clients || [];
+                
+                // Find clients that are in the current list but were not in the previous one
+                const newlyReadyClients = currentReadyClients.filter(id => !prevReadyClients.includes(id));
+                
+                newlyReadyClients.forEach(clientId => {
+                    logEvent(`Client #${clientId} finished training for task '${taskId}'. Sending update.`, 'success');
+                    state.globe.triggerPulse(clientId);
+                });
+            }
         }
 
-        // Log client connections/disconnections
-        const prevClients = prevState.network.connected_client_ids || [];
-        const currentClients = currentState.network.connected_client_ids || [];
-        
+        const prevClients = (prevState.network.connected_clients || []).map(c => c.id);
+        const currentClients = (currentState.network.connected_clients || []).map(c => c.id);
         const connected = currentClients.filter(id => !prevClients.includes(id));
         const disconnected = prevClients.filter(id => !currentClients.includes(id));
-
         connected.forEach(id => logEvent(`Client #${id} connected.`));
         disconnected.forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
     }
 
-
     // --- MAIN DATA FETCHING LOOP ---
     async function fetchData() {
         try {
-            const statusResponse = await fetch('/status');
-            const tokenomicsResponse = await fetch('/tokenomics');
+            const [statusResponse, tokenomicsResponse] = await Promise.all([
+                fetch('/status'),
+                fetch('/tokenomics')
+            ]);
 
             if (!statusResponse.ok || !tokenomicsResponse.ok) {
                 throw new Error('Network response was not ok');
@@ -200,60 +210,53 @@ document.addEventListener('DOMContentLoaded', () => {
             const statusData = await statusResponse.json();
             const tokenomicsData = await tokenomicsResponse.json();
             
-            generateLiveLogs(state, { tasks: statusData.tasks, network: statusData.network_info });
-            state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network }));
+            state._prevState = JSON.parse(JSON.stringify({ 
+                tasks: state.tasks, 
+                network: state.network,
+                tokenomics: state.tokenomics
+            }));
             
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
             state.tokenomics = tokenomicsData;
             
-            // --- CALL THE SINGLE RENDER FUNCTION ---
             render(); 
             
-            // ... connection indicator logic is the same ...
+            connectionStatusDot.className = 'status-dot connected';
+            connectionStatusText.textContent = 'Connected';
         } catch (error) {
-            // ... error handling is the same ...
+            connectionStatusDot.className = 'status-dot disconnected';
+            connectionStatusText.textContent = 'Disconnected';
+            console.error("Fetch error:", error);
         }
     }
     
-    // --- EVENT LISTENERS (MODIFIED) ---
+    // --- EVENT LISTENERS ---
     taskSelect.addEventListener('change', (e) => {
+        state.selectedTaskId = e.target.value;
+        // When task changes, all arcs need to point to the new server.
+        // We clear them here, and they will be rebuilt on the next data fetch.
         if (state.globe) {
             state.globe.clearAllArcs();
+            updateGlobeArcs();
         }
-        state.selectedTaskId = e.target.value;
-        render(); // Just call render, it will handle everything
+        updateTaskDetails();
+        updateAccuracyChart();
     });
 
-function initializeDashboard() {
+    function initializeDashboard() {
         logEvent('Dashboard Initialized. Connecting to server...');
-
-        // --- ROBUSTNESS CHECK: Ensure libraries are loaded ---
-        if (typeof Chart === 'undefined') {
-            logEvent('Error: Chart.js library not loaded.', 'error');
-            console.error('Chart.js is not loaded. Cannot initialize charts.');
+        if (typeof Chart === 'undefined' || typeof THREE === 'undefined' || typeof createGlobe === 'undefined') {
+            logEvent('Error: A required library (Chart.js, Three.js, or globe.js) failed to load.', 'error');
             return;
         }
-        if (typeof THREE === 'undefined') {
-            logEvent('Error: Three.js library not loaded.', 'error');
-            console.error('Three.js is not loaded. Cannot initialize globe.');
-            return;
-        }
-        if (typeof createGlobe === 'undefined') {
-            logEvent('Error: globe.js module not loaded.', 'error');
-            console.error('globe.js is not loaded. Cannot initialize globe.');
-            return;
-        }
-        // ---------------------------------------------------
 
         initializeAccuracyChart();
-        
         const globeContainer = document.getElementById('globe-container');
         if (globeContainer) {
             state.globe = createGlobe(globeContainer);
         }
         
-        // Start polling only if the tab is initially visible
         if (document.visibilityState === 'visible') {
             startPolling();
         }
@@ -264,7 +267,7 @@ function initializeDashboard() {
     function startPolling() {
         if (fetchDataInterval) clearInterval(fetchDataInterval);
         fetchData();
-        fetchDataInterval = setInterval(fetchData, 3000);
+        fetchDataInterval = setInterval(fetchData, 5000);
     }
 
     function stopPolling() {
@@ -279,5 +282,5 @@ function initializeDashboard() {
         }
     });
     
-initializeDashboard();
+    initializeDashboard();
 });
