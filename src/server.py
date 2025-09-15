@@ -257,29 +257,49 @@ class FederationTask:
             await asyncio.sleep(1)
 
 class ControllerClientPlaceholder:
-    """A mock WebSocket object to represent a controller client in the main list."""
     def __init__(self, client_id):
         self.client_id = client_id
     async def send_text(self, message: str):
-        # When the server tries to send a message (like START_TRAINING),
-        # we intercept it and update the controller's state instead.
         data = json.loads(message)
         payload = data.get("payload", {})
+        task_id = payload.get("task_id")
+        task = manager.tasks.get(task_id)
         session = manager.controller_manager.get_session(self.client_id)
-        if session:
-            session.current_step = "control_panel"
-            session.task_id = payload.get("task_id")
-            session.round = payload.get("round")
-            print(f"CONTROLLER: Assigned task '{session.task_id}' to client #{self.client_id}")
+        if not session or not task: return
+
+        # --- FIX: Lock the session for synchronous tasks to prevent overwrites ---
+        if task.learning_mode == 'asynchronous' and session.is_locked:
+            print(f"CONTROLLER: Client #{self.client_id} is locked for a sync task. Ignoring async broadcast for '{task_id}'.")
+            return
+        
+        if task.learning_mode == 'synchronous':
+            session.is_locked = True # Lock the client to this task
+        
+        session.current_step = "control_panel_data" # Start at the data selection step
+        session.task_id = task_id
+        session.round = payload.get("round")
+        print(f"CONTROLLER: Assigned task '{session.task_id}' to client #{self.client_id} (Locked: {session.is_locked})")
 
 class ControllerClient(BaseModel):
     client_id: int
     session_token: str = secrets.token_hex(16)
-    current_step: str = "waiting_for_task" # Start in waiting state
+    current_step: str = "waiting_for_task"
+    is_locked: bool = False # New flag to prevent task overwrites
     task_id: str | None = None
     round: int | None = None
     
 class ControllerManager:
+    def __init__(self):
+        self.sessions: Dict[int, ControllerClient] = {}
+        self.available_slots: List[int] = list(range(10, 20))
+    def join_session(self, client_id: int): # Simplified return type
+        if client_id in self.available_slots and self.sessions.get(client_id) is None:
+            self.sessions[client_id] = ControllerClient(client_id=client_id)
+            return self.sessions[client_id]
+        return None
+    def get_session(self, client_id: int): return self.sessions.get(client_id)
+    def remove_session(self, client_id: int):
+        if client_id in self.sessions: del self.sessions[client_id]
     def __init__(self):
         self.sessions: Dict[int, ControllerClient] = {}
         self.available_slots: List[int] = list(range(10, 20))
@@ -419,65 +439,39 @@ async def controller_action(request: ActionRequest):
     action_handled = False
     next_step = session.current_step
 
-    # --- NEW: Logic to inject a pre-baked update on 'send' ---
     if request.action == "send" and session.task_id and session.round is not None:
         try:
             task = manager.tasks[session.task_id]
-            client_id = session.client_id
-            round_num = session.round
-
-            # 1. Load the pre-baked update file
-            update_path = os.path.join(manager.PREBAKED_UPDATES_PATH, f"prebaked_update_{client_id}.json")
+            update_path = os.path.join(manager.PREBAKED_UPDATES_PATH, f"prebaked_update_{session.client_id}.json")
             with open(update_path, 'r') as f:
-                serialized_update = f.read()
+                update = await asyncio.to_thread(deserialize_model_update, f.read())
             
-            # 2. Deserialize it back into a TenSEAL object
-            deserialized_update = await asyncio.to_thread(deserialize_model_update, serialized_update)
-
-            # 3. Inject the update directly into the federation task's state
-            task.updates_for_round.setdefault(round_num, []).append(deserialized_update)
-            task.clients_ready_for_round.setdefault(round_num, []).append(client_id)
+            task.updates_for_round.setdefault(session.round, []).append(update)
+            task.clients_ready_for_round.setdefault(session.round, []).append(session.client_id)
             
-            print(f"CONTROLLER: Injected pre-baked update for client #{client_id} into task '{session.task_id}' round {round_num}")
+            print(f"CONTROLLER: Injected pre-baked update for client #{session.client_id} into task '{session.task_id}' round {session.round}")
             
             session.current_step = "rewarded"
-            next_step = "rewarded"
+            session.is_locked = False # Unlock the session after completion
             action_handled = True
-
-        except FileNotFoundError:
-            return JSONResponse(status_code=500, content={"error": f"Pre-baked update for client #{session.client_id} not found."})
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": f"Failed to inject update: {e}"})
 
-    # This part handles the cosmetic state updates for other buttons
     if not action_handled:
         print(f"CONTROLLER: Received action '{request.action}' for client #{request.client_id}")
-        
-        # --- COMPLETED STATE TRANSITION LOGIC ---
-        # Based on the action received, determine the next step in the UI flow.
-        # The frontend will use this 'next_step' value to unlock the next button.
-        if request.action == "confirm_data":
-            next_step = "actions_stake"
-        elif request.action == "stake":
-            next_step = "actions_train"
-        elif request.action == "train":
-            next_step = "actions_encrypt"
+        # --- FIX: Correct and complete state transitions ---
+        if request.action == "confirm_data": next_step = "actions_stake"
+        elif request.action == "stake": next_step = "actions_train"
+        elif request.action == "train": next_step = "actions_encrypt"
         elif request.action == "encrypt":
-            # The next step depends on whether DP is enabled for this task
             task = manager.tasks.get(session.task_id)
-            if task and "dp" in task.privacy_profile:
-                next_step = "actions_dp"
-            else:
-                # If no DP in the profile, skip directly to the send step
-                next_step = "actions_send"
-        elif request.action == "dp":
-            next_step = "actions_send"
+            next_step = "actions_dp" if task and "dp" in task.privacy_profile else "actions_send"
+        elif request.action == "dp": next_step = "actions_send"
         
-        # Persist the new state in the session for the client
         session.current_step = next_step
-        # --- END OF COMPLETION ---
     
-    return {"message": f"Action '{request.action}' acknowledged.", "next_step": next_step}
+    return {"message": f"Action '{request.action}' acknowledged.", "next_step": session.current_step}
+
 
 class AdminActionRequest(BaseModel):
     client_id: int
