@@ -7,11 +7,12 @@ document.addEventListener('DOMContentLoaded', () => {
         tasks: {},
         network: {},
         tokenomics: {},
-        charts: {
-            accuracyChart: null
-        },
-        globe: null // Add a placeholder for our globe object
+        charts: { accuracyChart: null },
+        globe: null,
+        // --- NEW: STORE PREVIOUS STATE FOR COMPARISON ---
+        _prevState: {} 
     };
+
 
     // --- DOM ELEMENT REFERENCES ---
     const taskSelect = document.getElementById('task-select');
@@ -22,15 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function logEvent(message, type = 'info') {
         const logEntry = document.createElement('div');
         const timestamp = new Date().toLocaleTimeString();
-        logEntry.innerHTML = `<span>[${timestamp}]</span> ${message}`;
-        logEntry.className = `log-${type}`;
-        
-        // --- FIX: PREPEND INSTEAD OF APPEND ---
-        eventLog.prepend(logEntry); // Inserts the new log at the top
-        // -------------------------------------
-        
-        // We no longer need to auto-scroll to the bottom
-        // eventLog.scrollTop = eventLog.scrollHeight; 
+        logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> <span class="log-message">${message}</span>`;
+        logEntry.className = `log-entry log-${type}`;
+        eventLog.prepend(logEntry);
     }
 
     // --- CHART INITIALIZATION ---
@@ -136,6 +131,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function generateLiveLogs(prevState, currentState) {
+        if (!prevState.tasks) return; // Don't log on the very first fetch
+
+        // Log task status changes
+        for (const taskId in currentState.tasks) {
+            const prevTask = prevState.tasks[taskId] || {};
+            const currentTask = currentState.tasks[taskId];
+
+            if (currentTask.current_round > prevTask.current_round) {
+                const metricName = currentTask.metric.toUpperCase();
+                const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
+                logEvent(`Task '${taskId}' round ${prevTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
+            }
+            if (currentTask.status !== prevTask.status) {
+                 logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`);
+            }
+        }
+
+        // Log client connections/disconnections
+        const prevClients = prevState.network.connected_client_ids || [];
+        const currentClients = currentState.network.connected_client_ids || [];
+        
+        const connected = currentClients.filter(id => !prevClients.includes(id));
+        const disconnected = prevClients.filter(id => !currentClients.includes(id));
+
+        connected.forEach(id => logEvent(`Client #${id} connected.`));
+        disconnected.forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
+    }
     
 
 
@@ -152,17 +175,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const statusData = await statusResponse.json();
             const tokenomicsData = await tokenomicsResponse.json();
             
-            // Update state
+            // --- NEW: GENERATE LOGS BEFORE UPDATING STATE ---
+            generateLiveLogs(state, { tasks: statusData.tasks, network: statusData.network_info });
+
+            // Store a DEEP COPY of the previous state
+            state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network }));
+            
+            // Update state with new data
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
             state.tokenomics = tokenomicsData;
-
-            // Update UI components
-            updateTaskSelector();
-            updateTaskDetails();
-            updateAccuracyChart();
-            updateNetworkEconomics();
-            updateNetworkStatus();
             
             // Update connection indicator
             document.getElementById('connection-status-dot').className = 'status-dot connected';

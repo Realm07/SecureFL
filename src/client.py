@@ -13,11 +13,10 @@ import math
 
 from .config import get_config
 from .models import get_model
-from .data_loader import get_client_datasets # Corrected import
+from .data_loader import get_client_datasets 
 from .fl_logic import train_local_client_secure
 from .serialization import serialize_model_update, deserialize_model
 
-# ... (get_client_dataloader function is unchanged) ...
 def get_client_dataloader(client_id: int, config: dict):
     dataset_name = config['dataset_name']
     cache_key = f"{client_id}_{dataset_name}"
@@ -50,7 +49,14 @@ async def client_logic(client_id):
     while True:
         try:
             print(f"Client #{client_id}: Connecting...")
-            async with websockets.connect(uri, max_size=2 * 1024 * 1024, ping_interval=20, ping_timeout=20) as websocket:
+            # --- THE FIX: INCREASE WEBSOCKET TIMEOUTS ---
+            async with websockets.connect(
+                uri, 
+                max_size=2 * 1024 * 1024,
+                ping_interval=120,  
+                ping_timeout=300 
+            ) as websocket:
+            # ----------------------------------------
                 print(f"Client #{client_id}: Connected. Waiting for tasks...")
                 
                 while True: 

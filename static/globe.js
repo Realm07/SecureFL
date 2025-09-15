@@ -75,7 +75,7 @@ function createGlobe(container) {
         const cloudMaterial = new THREE.MeshLambertMaterial({
             map: cloudTexture,
             transparent: true,
-            opacity: 0.1
+            opacity: 0.0
         });
         const cloudGeometry = new THREE.SphereGeometry(GLOBE_RADIUS + 2, 64, 64);
         cloudsMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
@@ -134,7 +134,8 @@ function createGlobe(container) {
         );
         // -------------------------------------------------------------
         
-        composer = new THREE.EffectComposer(renderer);
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setClearAlpha(0.0);
         composer.addPass(renderScene);
         composer.addPass(bloomPass);
 
@@ -145,7 +146,7 @@ function createGlobe(container) {
     function animate() {
         requestAnimationFrame(animate);
         if (cloudsMesh) {
-            cloudsMesh.rotation.y += 0.0002;
+            cloudsMesh.rotation.y += 0.0000;
         }
         controls.update();
         composer.render();
@@ -155,7 +156,8 @@ function createGlobe(container) {
         camera.aspect = container.clientWidth / container.clientHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(container.clientWidth, container.clientHeight);
-        composer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
     }
 
     function updateClientStatus(activeClientIds) {

@@ -156,10 +156,10 @@ class FederationTask:
         # 3. Collect Updates
         try:
             # --- FIX: LONGER TIMEOUT FOR FIRST ROUND ---
-            timeout = 300.0 if round_num == 1 else 120.0
-            await asyncio.wait_for(self._wait_for_clients_ready(round_num, len(selected_clients)), timeout=timeout)
+            timeout = 300.0 if self.current_round == 1 else 120.0
+            await asyncio.wait_for(self._wait_for_clients_ready(self.current_round, len(selected_clients)), timeout=timeout)
         except asyncio.TimeoutError:
-            task_log(self.task_id, f"Round {round_num} timed out waiting for clients to report completion.")
+            task_log(self.task_id, f"Round {self.current_round} timed out waiting for clients to report completion.")
 
         ready_clients = self.clients_ready_for_round.get(round_num, [])
         for client_id in ready_clients:
@@ -330,8 +330,13 @@ async def task_orchestrator_loop(task_id: str):
     task.status = TaskStatus.IDLE
 
     while not task.is_complete():
+        # --- THE FIX: EXECUTE FIRST, THEN SLEEP ---
+        # Don't sleep at the start of the loop. This ensures the orchestrator
+        # is always ready to process client "TRAINING_COMPLETE" messages.
         await task.execute_round(manager)
-        await asyncio.sleep(1) # Small delay between rounds
+        
+        # Sleep AFTER the round is complete to pace the tasks.
+        await asyncio.sleep(5)
     
 @app.on_event("startup")
 async def startup_event():
