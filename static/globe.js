@@ -1,8 +1,12 @@
 const GLOBE_RADIUS = 100;
 const CLIENT_POINT_RADIUS = 0.8;
 const SERVER_POINT_RADIUS = 2.0;
-const PULSE_RADIUS = 1.5;
+// --- NEW: Pulse constants ---
+const PULSE_CYLINDER_HEIGHT = 5;
+const PULSE_MAIN_RADIUS = 0.6;
+const PULSE_GLOW_RADIUS = 1.2;
 const ARC_THICKNESS = 0.4;
+
 
 function latLonToVector3(lat, lon, radius) {
     const phi = (90 - lat) * (Math.PI / 180);
@@ -13,34 +17,15 @@ function latLonToVector3(lat, lon, radius) {
     return new THREE.Vector3(x, y, z);
 }
 
-// --- FIX: Advanced Arc Calculation with Cubic Bezier Curve ---
-// This new logic ensures arcs always travel above the globe and have a graceful liftoff.
 function createCurve(startVec, endVec) {
-    // 1. Calculate the midpoint in 3D space
     const midPoint = startVec.clone().lerp(endVec, 0.5);
-
-    // 2. Calculate the distance between the two points (the chord length)
     const distance = startVec.distanceTo(endVec);
-
-    // 3. Push the midpoint away from the center of the globe to create the arc's peak.
-    // The peak height is proportional to the distance, making long arcs taller.
-    // The multiplier (0.5) is increased for more dramatic height.
     midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75);
 
-    // 4. Create two control points for the Cubic Bezier Curve.
-    // These points are interpolated between the start/end points and the high midpoint.
-    // This forces the curve to "lift off" the surface of the globe before curving.
     const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
     const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
 
-    // 5. Create the Cubic Bezier Curve
-    const curve = new THREE.CubicBezierCurve3(
-        startVec,
-        controlPoint1,
-        controlPoint2,
-        endVec
-    );
-
+    const curve = new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);
     return curve;
 }
 
@@ -101,20 +86,8 @@ function createGlobe(container) {
         scene.add(cloudsMesh);
 
         const atmosphereMaterial = new THREE.ShaderMaterial({
-            vertexShader: `
-                varying vec3 vNormal;
-                void main() {
-                    vNormal = normalize(normalMatrix * normal);
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                varying vec3 vNormal;
-                void main() {
-                    float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-                    gl_FragColor = vec4(0.0, 0.70, 0.85, 1.0) * intensity;
-                }
-            `,
+            vertexShader: `varying vec3 vNormal; void main() { vNormal = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+            fragmentShader: `varying vec3 vNormal; void main() { float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0); gl_FragColor = vec4(0.0, 0.70, 0.85, 1.0) * intensity; }`,
             blending: THREE.AdditiveBlending,
             side: THREE.BackSide,
             transparent: true
@@ -130,9 +103,12 @@ function createGlobe(container) {
 
         composer = new THREE.EffectComposer(renderer);
         const renderScene = new THREE.RenderPass(scene, camera);
+        // --- FIX: Increased bloom strength for more glow ---
         const bloomPass = new THREE.UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.4, 0.5, 0.85
+            0.7, // Strength
+            0.5, // Radius
+            0.85 // Threshold
         );
         composer.addPass(renderScene);
         composer.addPass(bloomPass);
@@ -143,13 +119,10 @@ function createGlobe(container) {
 
     function addOrUpdateArc(clientId, clientLocation, serverLocation) {
         const key = `arc-${clientId}`;
-        if (activeArcs.has(key)) {
-            return; 
-        }
+        if (activeArcs.has(key)) return;
 
         const startVec = latLonToVector3(clientLocation.lat, clientLocation.lon, GLOBE_RADIUS);
         const endVec = latLonToVector3(serverLocation.lat, serverLocation.lon, GLOBE_RADIUS);
-        
         const curve = createCurve(startVec, endVec);
         
         const geometry = new THREE.TubeGeometry(curve, 64, ARC_THICKNESS, 8, false);
@@ -173,7 +146,7 @@ function createGlobe(container) {
     }
 
     function clearAllArcs() {
-        activeArcs.forEach((arcData, key) => {
+        activeArcs.forEach((arcData) => {
             earthMesh.remove(arcData.mesh);
             arcData.mesh.geometry.dispose();
             arcData.mesh.material.dispose();
@@ -181,14 +154,27 @@ function createGlobe(container) {
         activeArcs.clear();
     }
 
+    // --- FIX: Upgraded Pulse with Cylinder and Glow ---
     function triggerPulse(clientId) {
         const key = `arc-${clientId}`;
         if (!activeArcs.has(key)) return;
 
         const { curve } = activeArcs.get(key);
-        const geometry = new THREE.SphereGeometry(PULSE_RADIUS, 16, 16);
-        const material = new THREE.MeshBasicMaterial({ color: 0x2ECC71 });
-        const pulseMesh = new THREE.Mesh(geometry, material);
+        
+        // Main Pulse Cylinder
+        const pulseGeom = new THREE.CylinderGeometry(PULSE_MAIN_RADIUS, PULSE_MAIN_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
+        const pulseMat = new THREE.MeshBasicMaterial({ color: 0x0077FF }); // Darker blue
+        const pulseMesh = new THREE.Mesh(pulseGeom, pulseMat);
+
+        // Glow effect cylinder
+        const glowGeom = new THREE.CylinderGeometry(PULSE_GLOW_RADIUS, PULSE_GLOW_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
+        const glowMat = new THREE.MeshBasicMaterial({
+            color: 0x00B4D8, // Lighter teal for the glow
+            transparent: true,
+            opacity: 0.4
+        });
+        const glowMesh = new THREE.Mesh(glowGeom, glowMat);
+        pulseMesh.add(glowMesh); // Attach glow to the main pulse
         
         const pulse = {
             mesh: pulseMesh,
@@ -207,12 +193,19 @@ function createGlobe(container) {
 
             if (pulse.progress >= 1) {
                 earthMesh.remove(pulse.mesh);
-                pulse.mesh.geometry.dispose();
-                pulse.mesh.material.dispose();
+                pulse.mesh.traverse(child => { // Dispose geometries of children too
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
                 activePulses.splice(i, 1);
             } else {
-                const newPos = pulse.curve.getPoint(pulse.progress);
-                pulse.mesh.position.copy(newPos);
+                const currentPos = pulse.curve.getPoint(pulse.progress);
+                pulse.mesh.position.copy(currentPos);
+                
+                // --- FIX: Orient the cylinder to follow the curve ---
+                const nextProgress = Math.min(pulse.progress + 0.01, 1);
+                const nextPos = pulse.curve.getPoint(nextProgress);
+                pulse.mesh.lookAt(nextPos);
             }
         }
     }
