@@ -1,68 +1,54 @@
-
 import asyncio
 import traceback
 import websockets
 import argparse
 import json
 import torch
-from torch.utils.data import DataLoader
 import tenseal as ts
 import gc
 import math
+from typing import Set
 
-from .config import get_config
+from .client_data_manager import ClientDataManager
 from .models import get_model
-from .data_loader import get_client_datasets 
 from .fl_logic import train_local_client_secure
 from .serialization import serialize_model_update, deserialize_model
 
-client_data_cache = {}
+# --- GLOBALS FOR ASYNC CONTEXT ---
 websocket_connection = None
-
-def get_client_dataloader(client_id: int, config: dict):
-    dataset_name = config['dataset_name']
-    cache_key = f"{client_id}_{dataset_name}"
-    if cache_key in client_data_cache:
-        print(f"Client #{client_id}: Loading '{dataset_name}' data from cache.")
-        return client_data_cache[cache_key]
-    
-    print(f"Client #{client_id}: Loading '{dataset_name}' data from disk...")
-    client_datasets = get_client_datasets(config)
-    my_dataset = client_datasets[client_id]
-    my_dataloader = DataLoader(my_dataset, batch_size=config['batch_size'], shuffle=True)
-    client_data_cache[cache_key] = my_dataloader
-    print(f"Client #{client_id}: Data loaded for '{dataset_name}'. {len(my_dataset)} samples.")
-    return my_dataloader
+_pending_updates = {}
+tasks_in_progress: Set[str] = set()
+# Use a single, persistent data manager instance
+data_manager = ClientDataManager()
 
 async def run_training_and_send_update(client_id: int, task_id: str, payload: dict, context, slot_count):
     """A background task to handle training without blocking the websocket."""
-    global websocket_connection
+    global websocket_connection, tasks_in_progress
     try:
         print(f"\nClient #{client_id}: Received task '{task_id}' (v{payload.get('model_version', 'sync')}). Starting training...")
         config = payload['config']
-        dataloader = get_client_dataloader(client_id, config)
+        
+        # Use the robust data manager
+        dataloader = data_manager.get_dataloader(client_id, config)
+        
         local_model = get_model(config)
         deserialize_model(local_model, payload['model_state_dict'])
         
-        # --- FIX: Run the blocking training function in a separate thread ---
-        # This prevents the asyncio event loop from being blocked, allowing the client
-        # to respond to websocket pings and avoid timeouts during long training.
         encrypted_update = await asyncio.to_thread(
             train_local_client_secure, local_model, dataloader, config, context, slot_count
         )
-        # --------------------------------------------------------------------
         
         if encrypted_update and websocket_connection:
             update_str = serialize_model_update(encrypted_update)
             gc.collect()
 
-            if payload.get('model_version') is not None:
+            if payload.get('model_version') is not None: # Async tasks have a model version
                 print(f"Client #{client_id}: Async training for '{task_id}' complete. Sending update.")
                 message = {"type": "ASYNC_UPDATE", "payload": {
                     "task_id": task_id, "model_version": payload['model_version'], "update_data": update_str
                 }}
                 await websocket_connection.send(json.dumps(message))
-            else:
+            else: # Sync task
                 _pending_updates[task_id] = {"update_str": update_str, "round_num": payload['round']}
                 print(f"Client #{client_id}: Sync training for '{task_id}' complete. Notifying server.")
                 ready_message = {"type": "TRAINING_COMPLETE", "payload": {"task_id": task_id, "round": payload['round']}}
@@ -71,10 +57,14 @@ async def run_training_and_send_update(client_id: int, task_id: str, payload: di
     except Exception as e:
         print(f"Client #{client_id}: ERROR during background training for '{task_id}': {e}")
         traceback.print_exc()
-
+    finally:
+        # --- CRITICAL FIX: Mark task as no longer in progress ---
+        if task_id in tasks_in_progress:
+            tasks_in_progress.remove(task_id)
+        # ---------------------------------------------------------
 
 async def client_logic(client_id):
-    global websocket_connection, _pending_updates
+    global websocket_connection, _pending_updates, tasks_in_progress
     uri = f"ws://localhost:8000/ws/{client_id}"
     
     POLY_MOD_DEGREE = 16384
@@ -82,7 +72,6 @@ async def client_logic(client_id):
     context.generate_galois_keys()
     context.global_scale = 2**48
     slot_count = POLY_MOD_DEGREE // 2
-    _pending_updates = {}
 
     while True:
         try:
@@ -97,6 +86,13 @@ async def client_logic(client_id):
                     task_id = payload.get("task_id")
 
                     if msg_type in ['START_TRAINING', 'NEW_GLOBAL_MODEL']:
+                        # --- CRITICAL FIX: Prevent starting a task that's already running ---
+                        if task_id in tasks_in_progress:
+                            print(f"Client #{client_id}: Ignoring new request for task '{task_id}' as it's already in progress.")
+                            continue
+                        
+                        tasks_in_progress.add(task_id)
+                        # -----------------------------------------------------------------------
                         asyncio.create_task(run_training_and_send_update(client_id, task_id, payload, context, slot_count))
 
                     elif msg_type == 'REQUEST_UPDATE':
@@ -123,6 +119,7 @@ async def client_logic(client_id):
             print(f"Client #{client_id}: An unexpected error occurred: {e}")
         finally:
             websocket_connection = None
+            tasks_in_progress.clear() # Clear all tasks on disconnect
             await asyncio.sleep(5)
 
 if __name__ == "__main__":
