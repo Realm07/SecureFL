@@ -1,3 +1,4 @@
+
 import asyncio
 import traceback
 import websockets
@@ -16,7 +17,6 @@ from .fl_logic import train_local_client_secure
 from .serialization import serialize_model_update, deserialize_model
 
 client_data_cache = {}
-# Global websocket instance to be accessible by background tasks
 websocket_connection = None
 
 def get_client_dataloader(client_id: int, config: dict):
@@ -44,21 +44,25 @@ async def run_training_and_send_update(client_id: int, task_id: str, payload: di
         local_model = get_model(config)
         deserialize_model(local_model, payload['model_state_dict'])
         
-        encrypted_update = train_local_client_secure(local_model, dataloader, config, context, slot_count)
+        # --- FIX: Run the blocking training function in a separate thread ---
+        # This prevents the asyncio event loop from being blocked, allowing the client
+        # to respond to websocket pings and avoid timeouts during long training.
+        encrypted_update = await asyncio.to_thread(
+            train_local_client_secure, local_model, dataloader, config, context, slot_count
+        )
+        # --------------------------------------------------------------------
         
         if encrypted_update and websocket_connection:
             update_str = serialize_model_update(encrypted_update)
             gc.collect()
 
-            # Determine if this is a sync or async task
-            if payload.get('model_version') is not None: # Async tasks have a model version
+            if payload.get('model_version') is not None:
                 print(f"Client #{client_id}: Async training for '{task_id}' complete. Sending update.")
                 message = {"type": "ASYNC_UPDATE", "payload": {
                     "task_id": task_id, "model_version": payload['model_version'], "update_data": update_str
                 }}
                 await websocket_connection.send(json.dumps(message))
-            else: # Sync task
-                # In sync mode, we just prepare the update and wait for the server's request
+            else:
                 _pending_updates[task_id] = {"update_str": update_str, "round_num": payload['round']}
                 print(f"Client #{client_id}: Sync training for '{task_id}' complete. Notifying server.")
                 ready_message = {"type": "TRAINING_COMPLETE", "payload": {"task_id": task_id, "round": payload['round']}}
@@ -83,7 +87,7 @@ async def client_logic(client_id):
     while True:
         try:
             print(f"Client #{client_id}: Connecting...")
-            async with websockets.connect(uri, max_size=2 * 1024 * 1024, ping_interval=120, ping_timeout=300) as websocket:
+            async with websockets.connect(uri, max_size=2 * 1024 * 1024, ping_interval=20, ping_timeout=60) as websocket:
                 websocket_connection = websocket
                 print(f"Client #{client_id}: Connected. Waiting for tasks...")
                 
@@ -93,10 +97,9 @@ async def client_logic(client_id):
                     task_id = payload.get("task_id")
 
                     if msg_type in ['START_TRAINING', 'NEW_GLOBAL_MODEL']:
-                        # Launch training in the background for both modes
                         asyncio.create_task(run_training_and_send_update(client_id, task_id, payload, context, slot_count))
 
-                    elif msg_type == 'REQUEST_UPDATE': # Only for sync mode
+                    elif msg_type == 'REQUEST_UPDATE':
                         if task_id in _pending_updates:
                             pending = _pending_updates[task_id]
                             print(f"Client #{client_id}: Server requested update for '{task_id}'. Uploading...")

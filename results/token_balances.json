@@ -1,22 +1,22 @@
 {
     "2": {
-        "balance": 12390.0,
+        "balance": 12630.0,
         "stake": 100
     },
     "4": {
-        "balance": 12330.0,
+        "balance": 12490.0,
         "stake": 100
     },
     "3": {
-        "balance": 12440.0,
+        "balance": 12670.0,
         "stake": 100
     },
     "1": {
-        "balance": 12180.0,
+        "balance": 12400.0,
         "stake": 100
     },
     "0": {
-        "balance": 12660.0,
+        "balance": 12900.0,
         "stake": 100
     }
 }
