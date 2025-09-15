@@ -4,18 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Phoenix Federation Dashboard</title>
-
-    <!-- Fonts and CSS stay in the head -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <link rel="stylesheet" href="/static/style.css">
-
 </head>
 <body>
 
-    <!-- PRIMARY FIXED HEADER -->
     <header class="main-header">
         <div class="header-title">Phoenix</div>
         <div class="status-indicator">
@@ -24,113 +20,168 @@
         </div>
     </header>
 
-    <!-- WRAPPER FOR SIDEBAR AND MAIN CONTENT -->
     <div class="dashboard-body">
-        <!-- Sidebar Navigation -->
         <aside class="sidebar">
-            <div class="sidebar-header">
-                Phoenix
-            </div>
+            <div class="sidebar-header">Phoenix</div>
             <nav class="sidebar-nav">
-                <a href="#" class="active"><i class="fas fa-network-wired"></i><span>Live Network Monitor</span></a>
-                <a href="#"><i class="fas fa-store"></i><span>Model Marketplace</span></a>
-                <a href="#"><i class="fas fa-hammer"></i><span>Governance Builder</span></a>
+                <a href="#" class="active" data-view="monitor-view"><i class="fas fa-network-wired"></i><span>Live Network Monitor</span></a>
+                <a href="#" data-view="marketplace-view"><i class="fas fa-store"></i><span>Model Marketplace</span></a>
+                <a href="#" data-view="builder-view"><i class="fas fa-hammer"></i><span>Governance Builder</span></a>
                 <a href="#"><i class="fas fa-book-open"></i><span>Federation LedGO</span></a>
                 <a href="#"><i class="fas fa-lightbulb"></i><span>Platform Concepts</span></a>
             </nav>
         </aside>
 
-        <!-- Main Content Grid -->
         <main class="main-content">
-
-            <div class="content-grid">
-                <!-- Column 1: Control & Logs -->
-                <section class="column">
-                    <div class="card">
-                        <h2 class="card-header">Federation Task Selection</h2>
-                        <label>Select Active Federation Task:</label>
-                        <div class="custom-select-container" id="task-select-container">
-                            <div class="selected-task-display" id="selected-task-display">
-                                <span>Select a task...</span>
-                                <i class="fas fa-chevron-down chevron"></i>
-                            </div>
-                            <div class="task-options-list" id="task-options-list"></div>
-                        </div>
-                    </div>
-                    <div class="card">
-                        <h2 class="card-header">Task Details</h2>
-                        <div id="task-details-content" class="card-content">
-                            <p><strong>Model:</strong> <span id="task-model-name">--</span></p>
-                            <p><strong>Privacy:</strong> <span id="task-privacy-profile">--</span></p>
-                            <p><strong>Status:</strong> <span id="task-status">--</span></p>
-                            <p><strong>Progress:</strong> <span id="task-progress">--</span></p>
-                        </div>
-                    </div>
-                    <div class="card" id="event-log-card">
-                        <h2 class="card-header">Live Event Log</h2>
-                        <div class="event-log" id="event-log"></div>
-                    </div>
-                </section>
-
-                <!-- Column 2: Globe -->
-                <section class="column">
-                     <div class="card globe-card" id="globe-card">
-                        <div id="globe-container"></div>
-                        <div class="globe-title">3D Rotating Network Globe</div>
-                        <div class="globe-subtitle">(Real-time data flows, hover tooltips)</div>
-                    </div>
-                </section>
-
-                <!-- Column 3: Performance & Economics -->
-                <section class="column">
-                    <div class="card">
-                        <!-- THE FIX: The ID is restored on the line below -->
-                        <h2 class="card-header" id="accuracy-chart-header">Global Model Performance</h2>
-                        <div class="chart-wrapper">
-                            <canvas id="accuracy-chart"></canvas>
-                        </div>
-                    </div>
-                    <div class="card" id="live-accuracy-card">
-                        <h2 class="card-header">Live Accuracy</h2>
-                        <div class="metric-display">
-                            <div id="latest-accuracy" class="metric-value">--</div>
-                            <div id="latest-accuracy-label" class="metric-label">Latest Round Metric</div>
-                        </div>
-                    </div>
-                    <div class="card economics-card">
-                        <h2 class="card-header">Aggregation & Economics</h2>
-                        <div class="card-content" style="flex-grow: 1; display: flex; flex-direction: column;">
-                             <div class="metric-grid">
-                                <div><strong>Connected Clients:</strong> <span id="connected-clients-count">0</span></div>
-                                <!-- THE FIX: Corrected "TPS::" to "TPS:" -->
-                                <div><strong>Live TPS:</strong> <span id="live-tps">--</span></div>
-                                <div class="total-stake"><strong>Total Stake:</strong> <span id="total-stake">0 PHOENIX</span></div>
-                            </div>
-                            
-                            <div class="tab-container">
-                                <div class="tab active" data-tab="global">Global</div>
-                                <div class="tab" data-tab="task">Task Specific</div>
-                            </div>
-                            
-                            <div id="tab-content-global" class="tab-content active">
-                                <div class="leaderboard-wrapper">
-                                    <table id="leaderboard-table-global">
-                                        <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
-                                        <tbody></tbody>
-                                    </table>
+            <!-- VIEW 1: Live Monitor (Original Dashboard) -->
+            <div id="monitor-view" class="view-container active-view">
+                <div class="content-grid">
+                    <section class="column">
+                        <div class="card">
+                            <h2 class="card-header">Federation Task Selection</h2>
+                            <div class="custom-select-container" id="task-select-container">
+                                <div class="selected-task-display" id="selected-task-display">
+                                    <span>Select a task...</span><i class="fas fa-chevron-down chevron"></i>
                                 </div>
+                                <div class="task-options-list" id="task-options-list"></div>
                             </div>
-                            <div id="tab-content-task" class="tab-content">
-                                <div class="leaderboard-wrapper">
-                                    <table id="leaderboard-table-task">
-                                        <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
-                                        <tbody></tbody>
-                                    </table>
+                        </div>
+                        <div class="card">
+                            <h2 class="card-header">Task Details</h2>
+                            <div id="task-details-content" class="card-content">
+                                <p><strong>Model:</strong> <span id="task-model-name">--</span></p>
+                                <p><strong>Privacy:</strong> <span id="task-privacy-profile">--</span></p>
+                                <p><strong>Status:</strong> <span id="task-status">--</span></p>
+                                <p><strong>Progress:</strong> <span id="task-progress">--</span></p>
+                            </div>
+                        </div>
+                        <div class="card" id="event-log-card">
+                            <h2 class="card-header">Live Event Log</h2>
+                            <div class="event-log" id="event-log"></div>
+                        </div>
+                    </section>
+                    <section class="column">
+                        <div class="card globe-card" id="globe-card">
+                            <div id="globe-container"></div>
+                            <div class="globe-title">3D Rotating Network Globe</div>
+                            <div class="globe-subtitle">(Real-time data flows, hover tooltips)</div>
+                        </div>
+                    </section>
+                    <section class="column">
+                        <div class="card">
+                            <h2 class="card-header" id="accuracy-chart-header">Global Model Performance</h2>
+                            <div class="chart-wrapper"><canvas id="accuracy-chart"></canvas></div>
+                        </div>
+                        <div class="card" id="live-accuracy-card">
+                            <h2 class="card-header">Live Metric</h2>
+                            <div class="metric-display">
+                                <div id="latest-accuracy" class="metric-value">--</div>
+                                <div id="latest-accuracy-label" class="metric-label">Latest Round Metric</div>
+                            </div>
+                        </div>
+                        <div class="card economics-card">
+                            <h2 class="card-header">Aggregation & Economics</h2>
+                            <div class="card-content" style="flex-grow: 1; display: flex; flex-direction: column;">
+                                <div class="metric-grid">
+                                    <div><strong>Connected Clients:</strong> <span id="connected-clients-count">0</span></div>
+                                    <div><strong>Live TPS:</strong> <span id="live-tps">--</span></div>
+                                    <div class="total-stake"><strong>Total Stake:</strong> <span id="total-stake">0 PHOENIX</span></div>
+                                </div>
+                                <div class="tab-container">
+                                    <div class="tab active" data-tab="global">Global</div>
+                                    <div class="tab" data-tab="task">Task Specific</div>
+                                </div>
+                                <div id="tab-content-global" class="tab-content active">
+                                    <div class="leaderboard-wrapper">
+                                        <table id="leaderboard-table-global">
+                                            <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
+                                            <tbody></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div id="tab-content-task" class="tab-content">
+                                    <div class="leaderboard-wrapper">
+                                        <table id="leaderboard-table-task">
+                                            <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
+                                            <tbody></tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </section>
+                    </section>
+                </div>
+            </div>
+
+            <!-- VIEW 2: Model Marketplace -->
+            <div id="marketplace-view" class="view-container">
+                <h1 class="view-header">Model Marketplace</h1>
+                <div id="marketplace-grid" class="marketplace-grid">
+                    <!-- JS will populate this -->
+                </div>
+            </div>
+
+            <!-- VIEW 3: Governance Builder -->
+            <div id="builder-view" class="view-container">
+                <h1 class="view-header">Federation Builder</h1>
+                <div class="builder-form-wrapper">
+                    <form id="task-builder-form" class="card">
+                        <h2 class="card-header">Create New Federation Task</h2>
+                        <div class="form-grid">
+                            <!-- Column 1 -->
+                            <div class="form-column">
+                                <div class="form-group">
+                                    <label for="task_id">Task ID</label>
+                                    <input type="text" id="task_id" name="task_id" required placeholder="e.g., custom_arrhythmia_task">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dataset_name">Dataset</label>
+                                    <select id="dataset_name" name="dataset_name">
+                                        <option value="arrhythmia">Arrhythmia</option>
+                                        <option value="nasa_battery">NASA Battery</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="model_name">Model</label>
+                                    <select id="model_name" name="model_name">
+                                        <option value="mlp">MLP (for Arrhythmia)</option>
+                                        <option value="lstm_attention">LSTM with Attention (for NASA)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="learning_mode">Learning Mode</label>
+                                    <select id="learning_mode" name="learning_mode">
+                                        <option value="synchronous">Synchronous (Rounds)</option>
+                                        <option value="asynchronous">Asynchronous (Continuous)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <!-- Column 2 -->
+                            <div class="form-column">
+                                <div class="form-group">
+                                    <label for="num_rounds">Total Rounds / Aggregations</label>
+                                    <input type="number" id="num_rounds" name="num_rounds" value="25" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="local_epochs">Local Epochs per Client</label>
+                                    <input type="number" id="local_epochs" name="local_epochs" value="5" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="learning_rate">Learning Rate</label>
+                                    <input type="number" id="learning_rate" name="learning_rate" value="0.001" step="0.0001">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dp_noise_multiplier">Differential Privacy (Noise)</label>
+                                    <input type="number" id="dp_noise_multiplier" name="dp_noise_multiplier" value="1.5" step="0.1" min="0">
+                                    <small>Set to 0 to disable Differential Privacy.</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="button-primary">Create Task</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </main>
     </div>
@@ -144,7 +195,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
-    
     <script src="/static/globe.js"></script> 
     <script src="/static/main.js"></script>
 </body>
