@@ -48,16 +48,13 @@
                 <section class="column">
                     <div class="card">
                         <h2 class="card-header">Federation Task Selection</h2>
-                        <label for="task-select">Select Active Federation Task:</label>
-                        <!-- NEW: Custom Select Dropdown HTML Structure -->
+                        <label>Select Active Federation Task:</label>
                         <div class="custom-select-container" id="task-select-container">
                             <div class="selected-task-display" id="selected-task-display">
                                 <span>Select a task...</span>
                                 <i class="fas fa-chevron-down chevron"></i>
                             </div>
-                            <div class="task-options-list" id="task-options-list">
-                                <!-- Options will be populated by JS -->
-                            </div>
+                            <div class="task-options-list" id="task-options-list"></div>
                         </div>
                     </div>
                     <div class="card">
@@ -87,12 +84,12 @@
                 <!-- Column 3: Performance & Economics -->
                 <section class="column">
                     <div class="card">
+                        <!-- THE FIX: The ID is restored on the line below -->
                         <h2 class="card-header" id="accuracy-chart-header">Global Model Performance</h2>
                         <div class="chart-wrapper">
                             <canvas id="accuracy-chart"></canvas>
                         </div>
                     </div>
-                    <!-- NEW: Live Accuracy Card -->
                     <div class="card" id="live-accuracy-card">
                         <h2 class="card-header">Live Accuracy</h2>
                         <div class="metric-display">
@@ -100,20 +97,36 @@
                             <div id="latest-accuracy-label" class="metric-label">Latest Round Metric</div>
                         </div>
                     </div>
-                    <div class="card" style="flex-grow: 1;">
+                    <div class="card economics-card">
                         <h2 class="card-header">Aggregation & Economics</h2>
-                        <div class="card-content">
+                        <div class="card-content" style="flex-grow: 1; display: flex; flex-direction: column;">
                              <div class="metric-grid">
                                 <div><strong>Connected Clients:</strong> <span id="connected-clients-count">0</span></div>
+                                <!-- THE FIX: Corrected "TPS::" to "TPS:" -->
                                 <div><strong>Live TPS:</strong> <span id="live-tps">--</span></div>
                                 <div class="total-stake"><strong>Total Stake:</strong> <span id="total-stake">0 PHOENIX</span></div>
                             </div>
-                            <h3 class="sub-header">Reputation Leaderboard</h3>
-                            <div class="leaderboard-wrapper">
-                                <table id="leaderboard-table">
-                                    <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
-                                    <tbody></tbody>
-                                </table>
+                            
+                            <div class="tab-container">
+                                <div class="tab active" data-tab="global">Global</div>
+                                <div class="tab" data-tab="task">Task Specific</div>
+                            </div>
+                            
+                            <div id="tab-content-global" class="tab-content active">
+                                <div class="leaderboard-wrapper">
+                                    <table id="leaderboard-table-global">
+                                        <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div id="tab-content-task" class="tab-content">
+                                <div class="leaderboard-wrapper">
+                                    <table id="leaderboard-table-task">
+                                        <thead><tr><th>Client ID</th><th>Stake</th><th>Balance</th></tr></thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
