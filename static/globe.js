@@ -20,7 +20,7 @@ function latLonToVector3(lat, lon, radius) {
 function createCurve(startVec, endVec) {
     const midPoint = startVec.clone().lerp(endVec, 0.5);
     const distance = startVec.distanceTo(endVec);
-    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 0.75);
+    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75);
     const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
     const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
     return new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);

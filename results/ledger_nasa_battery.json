@@ -19691,5 +19691,23 @@
         },
         "previous_hash": "8df3c45bab3a7581ce5cc391d3a3279b470eb36422b639c09fb0fe86e2648bc8",
         "hash": "91a6665cddacf6ff625f7f93d477f50054f78242e2303adde7569a805f2255e5"
+    },
+    {
+        "index": 1184,
+        "timestamp": 1758059930.9802215,
+        "round_data": {
+            "round_number": 3,
+            "participants": [
+                0,
+                1,
+                2,
+                3,
+                4
+            ],
+            "global_model_hash": "8deed1624c08a162b03ef1137e206232210746703d340f2a4f5145e151f0c58f",
+            "global_model_accuracy": 0.30626145993414183
+        },
+        "previous_hash": "ada17596214b7f35bdf9cd2829db057c63fe6ac9691fb6aa1c7d61cdc1967c43",
+        "hash": "c0a12fd05ba4ce99c6c93362a15e365ab44d10b4af7fa575f506fe2f47ad7e96"
     }
 ]
