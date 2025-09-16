@@ -15111,5 +15111,117 @@
         },
         "previous_hash": "94c5af12247b81e83a4c9122af708e25bd7351d4913072f8c50bec85eda98ede",
         "hash": "2d11ae49a96ecc4b6ec544eb08e4fe8421229744b52fe3afaf4ef1f690cc7452"
+    },
+    {
+        "index": 946,
+        "timestamp": 1758058353.6365585,
+        "round_data": {
+            "round_number": 1,
+            "participants": [
+                0,
+                1,
+                3
+            ],
+            "global_model_hash": "6fc0afe30fc52536c506c33bf19f4ca2dcb612fb9c1351ea90b72cd793dfdcf9",
+            "global_model_accuracy": 49.75609756097561
+        },
+        "previous_hash": "f76ee0acfa1bae20196897c84e71822d8f0f30616fe020fcf8d4d73c9673dd75",
+        "hash": "c91824c3ff6c662e5b2803312e17c2a32e935c8ac0f139a08fa7c005021ad84d"
+    },
+    {
+        "index": 947,
+        "timestamp": 1758058537.1368392,
+        "round_data": {
+            "round_number": 1,
+            "participants": [
+                0,
+                1,
+                3
+            ],
+            "global_model_hash": "b9ec216239f42cf7ba299dcaf82c0b2ec80cde814c60d927204954a168c8f2a8",
+            "global_model_accuracy": 50.73170731707317
+        },
+        "previous_hash": "fef89e62b747d14dd12491e0c629159c6243ad9c1a3f4463fed4cdb1c43c32a1",
+        "hash": "13fe886805527ab924bff814c8b3c9da655013d19cf7a8d865c59849720aea03"
+    },
+    {
+        "index": 948,
+        "timestamp": 1758058664.2126272,
+        "round_data": {
+            "round_number": 2,
+            "participants": [
+                2,
+                3,
+                4
+            ],
+            "global_model_hash": "7e9daf698609097c343222ee2914baa879696c5e4fb7e3dddca177e849f5f25e",
+            "global_model_accuracy": 57.5609756097561
+        },
+        "previous_hash": "7ffd7f626eb315e4cb6d79b56c44263fc6b7129caf6ef8244e5e44aefd5437bf",
+        "hash": "5b4e5293b2bfae61668b2231bc29fca23a416d11612ff2243f3c1a87c50374ca"
+    },
+    {
+        "index": 949,
+        "timestamp": 1758058870.81131,
+        "round_data": {
+            "round_number": 1,
+            "participants": [
+                2,
+                3,
+                4
+            ],
+            "global_model_hash": "a78af170eb23fc089ece5f6b0478c76323f09b15876302dda5945748033b9b4d",
+            "global_model_accuracy": 52.19512195121951
+        },
+        "previous_hash": "f8eaeaded234bcd5017ec42296c465b8059b090ea159d5d8a0d65c7cb3463124",
+        "hash": "1aa1febc8e4c71ddb65a4d72aa46b4f75dd11d206c287e20b2022107119fb2d8"
+    },
+    {
+        "index": 950,
+        "timestamp": 1758058996.0582423,
+        "round_data": {
+            "round_number": 2,
+            "participants": [
+                1,
+                2,
+                4
+            ],
+            "global_model_hash": "04ccdb62d1e4052eadd4b328ddf75071610b86eaaf1a83ab02d7c45d56af4b26",
+            "global_model_accuracy": 55.1219512195122
+        },
+        "previous_hash": "e8ff6dc18fdd03cd49309d72326b12fd2fca9e3a8758fbb0ed25bfb5abb30831",
+        "hash": "010bc1d870381c6835de5832f3651f9d7f05196480c4cbc16517fa24b5d4cea9"
+    },
+    {
+        "index": 951,
+        "timestamp": 1758059134.3292978,
+        "round_data": {
+            "round_number": 1,
+            "participants": [
+                1,
+                2,
+                3
+            ],
+            "global_model_hash": "873f79cdaf9cb02b188e66a8cf538754834574fe9118283ec5cb35d0dc4cac4c",
+            "global_model_accuracy": 66.34146341463415
+        },
+        "previous_hash": "5e7c42c4325fe67fa71f1741c947dd3f637d4aaf53dd964252644fca14561b71",
+        "hash": "ec56d42e668bb8541a25ffdd72c52ba1e380d48e6dc6f4d049c3dd9ec75ae484"
+    },
+    {
+        "index": 952,
+        "timestamp": 1758059843.1498306,
+        "round_data": {
+            "round_number": 1,
+            "participants": [
+                1,
+                3,
+                4
+            ],
+            "global_model_hash": "2cf8bded5d300ad1c5b3d956cb8794cc23e72bc63d9641c686a7445680ee0c18",
+            "global_model_accuracy": 55.609756097560975
+        },
+        "previous_hash": "2d17658b36d3d456a2fa86b3e3f9e50cd2a35759f4f336da7b682afaaa387c8c",
+        "hash": "3d8975667a39d20b96e7f896f93247eb3425dcbfb7114a525cdfbf9587bbbed0"
     }
 ]
