@@ -1,4 +1,4 @@
-// --- CONSTANTS (Your values are preserved) ---
+// --- CONSTANTS ---
 const GLOBE_RADIUS = 100;
 const CLIENT_POINT_RADIUS = 0.7;
 const SERVER_POINT_RADIUS = 2.0;
@@ -20,8 +20,7 @@ function latLonToVector3(lat, lon, radius) {
 function createCurve(startVec, endVec) {
     const midPoint = startVec.clone().lerp(endVec, 0.5);
     const distance = startVec.distanceTo(endVec);
-    // Raise the control point higher for a more pronounced arc
-    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 0.75); 
+    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75); // Adjusted for better arc height
     const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
     const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
     return new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);
@@ -37,7 +36,7 @@ function createGlobe(container) {
     let activePulses = [];
     const cylinderUp = new THREE.Vector3(0, 1, 0);
 
-    // --- NEW: Tooltip and Raycasting variables ---
+    // --- Tooltip and Raycasting variables ---
     let tooltipElement;
     let raycaster = new THREE.Raycaster();
     let mouse = new THREE.Vector2();
@@ -54,22 +53,13 @@ function createGlobe(container) {
         renderer.setPixelRatio(window.devicePixelRatio);
         container.appendChild(renderer.domElement);
         
-        // --- NEW: Create and append tooltip element ---
+        // Create and append tooltip element
         tooltipElement = document.createElement('div');
         tooltipElement.className = 'globe-tooltip';
-        // Add some basic styles directly, in case a stylesheet isn't available
         Object.assign(tooltipElement.style, {
-            position: 'absolute',
-            display: 'none',
-            backgroundColor: 'rgba(20, 20, 30, 0.85)',
-            color: '#E0E0E0',
-            padding: '8px 12px',
-            borderRadius: '4px',
-            fontFamily: 'sans-serif',
-            fontSize: '13px',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
-            zIndex: '100',
+            position: 'absolute', display: 'none', backgroundColor: 'rgba(20, 20, 30, 0.85)',
+            color: '#E0E0E0', padding: '8px 12px', borderRadius: '4px', fontFamily: 'sans-serif',
+            fontSize: '13px', pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: '100',
             border: '1px solid rgba(138, 63, 252, 0.5)'
         });
         container.appendChild(tooltipElement);
@@ -124,7 +114,6 @@ function createGlobe(container) {
 
         animate();
         window.addEventListener('resize', onWindowResize);
-        // --- NEW: Add mouse move listener for tooltips ---
         renderer.domElement.addEventListener('mousemove', onMouseMove);
     }
 
@@ -205,7 +194,7 @@ function createGlobe(container) {
             } else {
                 pulse.mesh.position.copy(pulse.curve.getPoint(pulse.progress));
                 const tangent = pulse.curve.getTangent(pulse.progress).normalize();
-                if (!tangent.equals(new THREE.Vector3(0,0,0))) { // Robustness check for zero tangent
+                if (!tangent.equals(new THREE.Vector3(0,0,0))) {
                     const quaternion = new THREE.Quaternion();
                     quaternion.setFromUnitVectors(cylinderUp, tangent);
                     pulse.mesh.quaternion.copy(quaternion);
@@ -216,13 +205,7 @@ function createGlobe(container) {
 
     function triggerServerGlow() {
         if (!serverGlow) return;
-        new TWEEN.Tween(serverGlow.material)
-            .to({ opacity: 0.7 }, 300)
-            .easing(TWEEN.Easing.Quadratic.Out)
-            .yoyo(true)
-            .repeat(1)
-            .delay(100)
-            .start();
+        new TWEEN.Tween(serverGlow.material).to({ opacity: 0.7 }, 300).easing(TWEEN.Easing.Quadratic.Out).yoyo(true).repeat(1).delay(100).start();
     }
 
     function animate() {
@@ -241,7 +224,6 @@ function createGlobe(container) {
         composer.setSize(container.clientWidth, container.clientHeight);
     }
 
-    // --- NEW: Tooltip Logic ---
     function onMouseMove(event) {
         const rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -259,8 +241,11 @@ function createGlobe(container) {
                 let content = `<strong style="color: ${data.type === 'server' ? '#AB74FF' : '#2ECC71'};">${data.type === 'server' ? 'Server' : 'Client'} #${data.id}</strong>`;
                 content += `<div>Location: ${data.location.name}</div>`;
                 if (data.tokenomics) {
-                    content += `<div style="margin-top: 5px;">Balance: ${data.tokenomics.balance.toFixed(2)} PHOENIX</div>`;
-                    content += `<div>Stake: ${data.tokenomics.stake.toFixed(2)} PHOENIX</div>`;
+                    // --- FIX: Use correct property 'total_stake' and add fallback for robustness ---
+                    const balance = (data.tokenomics.balance || 0).toFixed(2);
+                    const stake = (data.tokenomics.total_stake || 0).toFixed(2);
+                    content += `<div style="margin-top: 5px;">Balance: ${balance} PHOENIX</div>`;
+                    content += `<div>Stake: ${stake} PHOENIX</div>`;
                 }
                 tooltipElement.innerHTML = content;
                 tooltipElement.style.display = 'block';
@@ -275,7 +260,6 @@ function createGlobe(container) {
         }
     }
     
-    // --- DATA UPDATE FUNCTIONS ---
     function updateClientPoints(connectedClients, tokenomicsData) {
         const connectedClientIds = connectedClients.map(c => c.id);
         connectedClients.forEach(client => {
@@ -291,13 +275,7 @@ function createGlobe(container) {
                     clientPoints.set(client.id, point);
                 }
                 point.visible = true;
-                // --- MODIFIED: Attach data to the mesh for the tooltip ---
-                point.userData = { 
-                    type: 'client', 
-                    id: client.id, 
-                    location: client.location, 
-                    tokenomics: tokenomicsData[client.id] 
-                };
+                point.userData = { type: 'client', id: client.id, location: client.location, tokenomics: tokenomicsData[client.id] };
             }
         });
         clientPoints.forEach((point, id) => { if (!connectedClientIds.includes(id)) point.visible = false; });
@@ -311,12 +289,7 @@ function createGlobe(container) {
             const material = new THREE.MeshBasicMaterial({ color: 0x8A3FFC });
             serverPoint = new THREE.Mesh(geometry, material);
             serverPoint.position.copy(pos);
-            // --- MODIFIED: Attach data to the mesh for the tooltip ---
-            serverPoint.userData = { 
-                type: 'server', 
-                id: serverLocation.name, 
-                location: serverLocation 
-            };
+            serverPoint.userData = { type: 'server', id: serverLocation.name, location: serverLocation };
             earthMesh.add(serverPoint);
 
             const glowGeom = new THREE.SphereGeometry(SERVER_POINT_RADIUS * 2.5, 32, 32);
