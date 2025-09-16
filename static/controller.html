@@ -52,12 +52,25 @@
             <div id="step-actions" class="step">
                 <h3>2. Perform Local Operations</h3>
                 <p>All computations happen here. Click the buttons in order.</p>
+
+                <!-- NEW: Data Visualization Container -->
+                <div id="data-visualization" style="display: none;">
+                    <div class="data-snippet-container">
+                        <h4><i class="fas fa-file-alt"></i> Raw Data Snippet</h4>
+                        <pre id="raw-data-pre">{ "patient_id": "P481", "ecg_lead1": [0.1, -0.2, ...] }</pre>
+                    </div>
+                    <div class="data-snippet-container encrypted">
+                        <h4><i class="fas fa-lock"></i> Encrypted Data Snippet</h4>
+                        <pre id="encrypted-data-pre">Waiting for encryption...</pre>
+                    </div>
+                </div>
+
                 <div class="action-list">
                     <button class="action-btn" data-action="stake"><span>1.</span> <i class="fas fa-coins"></i> Stake Tokens</button>
-                    <button class="action-btn" data-action="train"><span>2.</span> <i class="fas fa-brain"></i> Train Model (5 Epochs)</button>
-                    <button class="action-btn" data-action="encrypt"><span>3.</span> <i class="fas fa-shield-halved"></i> Apply SHE Encryption</button>
-                    <button class="action-btn" data-action="dp"><span>4.</span> <i class="fas fa-user-secret"></i> Apply Differential Privacy</button>
-                    <button class="action-btn" data-action="send"><span>5.</span> <i class="fas fa-paper-plane"></i> Send Encrypted Update</button>
+                    <button class="action-btn" data-action="train"><span>2.</span> <i class="fas fa-brain"></i> Train Model</button>
+                    <button class="action-btn" data-action="encrypt"><span>3.</span> <i class="fas fa-shield-halved"></i> Encrypt Update</button>
+                    <button class="action-btn" data-action="dp"><span>4.</span> <i class="fas fa-user-secret"></i> Add Privacy Noise</button>
+                    <button class="action-btn" data-action="send"><span>5.</span> <i class="fas fa-paper-plane"></i> Send to Server</button>
                 </div>
             </div>
 

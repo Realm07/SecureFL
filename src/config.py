@@ -22,6 +22,8 @@ def get_config(dataset_name="mnist"):
             'local_epochs': 5, 'learning_rate': 0.001, 'optimizer': 'adam',
             'weight_decay': 1e-5, 'metric': 'accuracy',
             'delta': 1e-5,
+            'num_features': 13,
+            'num_classes': 2,
             'encrypted_layers': [
                 'layer_3.weight', 'layer_3.bias',
                 'layer_out.weight', 'layer_out.bias'
