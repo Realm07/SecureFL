@@ -92,14 +92,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const dpButton = document.querySelector('.action-btn[data-action="dp"]');
         dpButton.style.display = status.task_info.privacy_profile.includes('dp') ? 'flex' : 'none';
         
-        // --- FIX: Server drives the initial step ---
         const initialStep = status.current_step.replace('control_panel_', '');
-        showStep(initialStep); // e.g., 'data'
+        showStep(initialStep === 'data' ? 'data' : 'actions');
+        
         if(initialStep !== 'data') {
-            // Enable the correct button if we start mid-way
             const action = status.current_step.replace('actions_', '');
             const btnToEnable = document.querySelector(`.action-btn[data-action="${action}"]`);
             if(btnToEnable) btnToEnable.classList.add('enabled');
+        } else {
+             // Default start: enable nothing until data is confirmed
         }
     }
 
@@ -131,28 +132,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleAction(action, btnElement = null) {
-        if(btnElement) {
+        if (btnElement && !btnElement.classList.contains('enabled')) return;
+        
+        if (btnElement) {
             btnElement.classList.remove('enabled');
             btnElement.innerHTML = `<span>${btnElement.querySelector('span').textContent}</span> <i class="fas fa-spinner fa-spin"></i> Processing...`;
         }
 
         try {
             const response = await apiCall('/controller/action', 'POST', {
-                client_id: state.clientId,
-                session_token: state.sessionToken,
-                action: action
+                client_id: state.clientId, session_token: state.sessionToken, action: action
             });
             
-            if(btnElement) {
+            if (btnElement) {
                 await new Promise(res => setTimeout(res, 750));
                 btnElement.classList.add('completed');
-                btnElement.innerHTML = `<span>${btnElement.querySelector('span').textContent}</span> <i class="fas fa-check"></i> ${action.charAt(0).toUpperCase() + action.slice(1)} Complete`;
+                const actionText = action.charAt(0).toUpperCase() + action.slice(1);
+                btnElement.innerHTML = `<span>${btnElement.querySelector('span').textContent}</span> <i class="fas fa-check"></i> ${actionText} Complete`;
             }
 
             const nextStepAction = response.next_step.replace('actions_', '');
             
-            if (response.next_step === "rewarded") {
-                showStep('rewarded');
+            // --- FIX: Correctly handle the new waiting_for_aggregation state ---
+            if (response.next_step === "waiting_for_aggregation") {
+                showStep('waiting_agg');
+                startStatusPolling(); // Start polling to see when we get rewarded
             } else if (response.next_step.startsWith('actions_')) {
                 showStep('actions');
                 const nextButton = document.querySelector(`.action-btn[data-action="${nextStepAction}"]`);
@@ -160,9 +164,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
         } catch (error) {
-            if(btnElement) btnElement.classList.add('enabled'); // Re-enable on failure
+            if (btnElement) btnElement.classList.add('enabled');
         }
     }
+
 
     actionBtns.forEach(btn => btn.addEventListener('click', () => handleAction(btn.dataset.action, btn)));
     nextRoundBtn.addEventListener('click', () => { showScreen('waiting'); startStatusPolling(); });

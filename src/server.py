@@ -136,18 +136,31 @@ class FederationTask:
         
         client_config = self._create_client_config()
         message = { "type": "START_TRAINING", "payload": { "task_id": self.task_id, "round": round_num, "model_state_dict": serialize_model(self.global_model), "config": client_config } }
+        
+        # --- FIX: Separate real clients from controller clients ---
+        real_clients_in_round = []
         for client_id in selected_clients:
-            if client_id in manager_instance.connected_clients:
-                await manager_instance.connected_clients[client_id].send_text(json.dumps(message))
+            client_conn = manager_instance.connected_clients.get(client_id)
+            if client_conn:
+                await client_conn.send_text(json.dumps(message))
+                if not isinstance(client_conn, ControllerClientPlaceholder):
+                    real_clients_in_round.append(client_id)
 
         try:
+            # Wait for all real clients to report completion
             timeout = 300.0 if self.current_round == 1 else 120.0
-            await asyncio.wait_for(self._wait_for_clients_ready(round_num, len(selected_clients)), timeout=timeout)
+            await asyncio.wait_for(self._wait_for_clients_ready(round_num, len(real_clients_in_round)), timeout=timeout)
+            
+            # Now, also wait for all controller clients to have submitted their updates
+            # This is a simple check that assumes controllers submit quickly after the UI interaction
+            await self._wait_for_all_updates(round_num, len(selected_clients))
+
         except asyncio.TimeoutError:
             task_log(self.task_id, f"Round {round_num} timed out waiting for clients to report completion.")
 
-        ready_clients = self.clients_ready_for_round.get(round_num, [])
-        for client_id in ready_clients:
+        # Request updates only from real clients
+        ready_real_clients = [cid for cid in self.clients_ready_for_round.get(round_num, []) if cid in real_clients_in_round]
+        for client_id in ready_real_clients:
             if client_id in manager_instance.connected_clients:
                 try:
                     self.update_received_event_for_round[round_num].clear()
@@ -158,7 +171,19 @@ class FederationTask:
         
         updates = self.updates_for_round.get(round_num, [])
         if updates:
-            await self._aggregate_and_update_model(updates, selected_clients)
+            # --- FIX: The _aggregate_and_update_model now returns a success flag ---
+            success = await self._aggregate_and_update_model(updates, selected_clients)
+            
+            if success:
+                # Only reset controller states if the round was successful
+                for client_id in selected_clients:
+                    if isinstance(manager_instance.connected_clients.get(client_id), ControllerClientPlaceholder):
+                        session = manager_instance.controller_manager.get_session(client_id)
+                        if session:
+                            # --- FIX: Set the state to 'rewarded' so the controller can poll it ---
+                            session.current_step = "rewarded"
+                            session.is_locked = False
+                            print(f"CONTROLLER: Set state to 'rewarded' for client #{client_id}.")
         else:
             task_log(self.task_id, f"No valid updates received for round {round_num}. Skipping model update.")
             
@@ -167,40 +192,82 @@ class FederationTask:
         
         self._check_completion()
     
-    async def execute_asynchronous_aggregation(self, manager_instance):
-        min_updates = self.config.get('min_updates_for_aggregation', 1)
-        if len(self.update_buffer) < min_updates:
-            self.status = TaskStatus.WAITING_FOR_CLIENTS
-            return
-
-        self.status = TaskStatus.AGGREGATING
+    async def execute_synchronous_round(self, manager_instance):
+        self.status = TaskStatus.RUNNING_ROUND
         self.current_round += 1
+        round_num = self.current_round
         
-        updates_to_process = list(self.update_buffer)
-        self.update_buffer.clear()
-        
-        latest_updates = {client_id: update_data for client_id, update_data, _ in updates_to_process}
-        
-        participating_clients, final_updates = list(latest_updates.keys()), list(latest_updates.values())
-        
-        task_log(self.task_id, f"--- Aggregation {self.current_round}/{self.config['num_rounds']} with {len(final_updates)} updates from clients: {participating_clients} ---")
-        
-        await self._aggregate_and_update_model(final_updates, participating_clients)
-        
-        self.model_version += 1
-        await manager_instance.broadcast_model(self)
+        task_log(self.task_id, f"--- Round {round_num}/{self.config['num_rounds']} ---")
 
+        eligible_clients = [cid for cid in manager_instance.connected_clients if manager_instance.token_manager.has_sufficient_stake(cid, manager_instance.MINIMUM_STAKE)]
+        if len(eligible_clients) < self.config['clients_per_round']:
+            task_log(self.task_id, "Not enough eligible clients. Waiting...")
+            self.status = TaskStatus.WAITING_FOR_CLIENTS
+            self.current_round -= 1
+            await asyncio.sleep(10)
+            return
+        
+        selected_clients = random.sample(eligible_clients, self.config['clients_per_round'])
+        task_log(self.task_id, f"Selected clients for round: {selected_clients}")
+        
+        self.updates_for_round[round_num] = []
+        self.clients_ready_for_round[round_num] = []
+        self.update_received_event_for_round[round_num] = asyncio.Event()
+        
+        client_config = self._create_client_config()
+        message = { "type": "START_TRAINING", "payload": { "task_id": self.task_id, "round": round_num, "model_state_dict": serialize_model(self.global_model), "config": client_config } }
+        
+        real_clients_in_round = []
+        for client_id in selected_clients:
+            client_conn = manager_instance.connected_clients.get(client_id)
+            if client_conn:
+                await client_conn.send_text(json.dumps(message))
+                if not isinstance(client_conn, ControllerClientPlaceholder):
+                    real_clients_in_round.append(client_id)
+
+        try:
+            await self._wait_for_all_updates(round_num, len(selected_clients))
+        except asyncio.TimeoutError:
+            task_log(self.task_id, f"Round {round_num} timed out waiting for all updates.")
+
+        updates = self.updates_for_round.get(round_num, [])
+        if len(updates) == len(selected_clients):
+            success = await self._aggregate_and_update_model(updates, selected_clients)
+            
+            # --- FIX: Only update controller state if aggregation was successful ---
+            if success:
+                for client_id in selected_clients:
+                    if isinstance(manager_instance.connected_clients.get(client_id), ControllerClientPlaceholder):
+                        session = manager_instance.controller_manager.get_session(client_id)
+                        if session and session.current_step != "rewarded":
+                            session.current_step = "rewarded"
+                            session.is_locked = False
+                            print(f"CONTROLLER: Set state to 'rewarded' for client #{client_id}.")
+        else:
+            task_log(self.task_id, f"Not enough updates received for round {round_num}. ({len(updates)}/{len(selected_clients)}) Skipping aggregation.")
+            
+        # Cleanup for the next round
+        for state_dict in [self.clients_ready_for_round, self.update_received_event_for_round, self.updates_for_round]:
+            if round_num in state_dict: del state_dict[round_num]
+        
         self._check_completion()
 
-    async def _aggregate_and_update_model(self, updates, clients):
-        avg_delta = await asyncio.to_thread(aggregate_and_decrypt_tenseal, manager.context, updates, len(updates))
-        if avg_delta:
-            self._apply_update(avg_delta)
-            metric_val = self._evaluate_and_log(self.current_round)
-            manager.token_manager.reward_clients(clients, manager.REWARD_AMOUNT)
-            self.ledger.add_round_to_ledger(self.current_round, clients, hash_model_state(self.global_model), metric_val)
-        else:
-            task_log(self.task_id, f"Aggregation failed for round/event {self.current_round}.")
+    async def _aggregate_and_update_model(self, updates, clients) -> bool:
+        try:
+            avg_delta = await asyncio.to_thread(aggregate_and_decrypt_tenseal, manager.context, updates, len(updates))
+            if avg_delta:
+                self._apply_update(avg_delta)
+                metric_val = self._evaluate_and_log(self.current_round)
+                manager.token_manager.reward_clients(clients, manager.REWARD_AMOUNT)
+                self.ledger.add_round_to_ledger(self.current_round, clients, hash_model_state(self.global_model), metric_val)
+                return True # --- FIX: Return True on success ---
+            else:
+                task_log(self.task_id, f"Aggregation failed for round/event {self.current_round}.")
+                return False # --- FIX: Return False on failure ---
+        except Exception as e:
+            task_log(self.task_id, f"ERROR during aggregation: {e}")
+            traceback.print_exc()
+            return False
 
     def _check_completion(self):
         self.status = TaskStatus.IDLE
@@ -256,6 +323,15 @@ class FederationTask:
         while len(self.clients_ready_for_round.get(round_num, [])) < num_expected:
             await asyncio.sleep(1)
 
+    async def _wait_for_all_updates(self, round_num, num_expected):
+        """Waits until the expected number of total updates (real + controller) are received."""
+        # This is a simple polling check. A more advanced system might use events.
+        for _ in range(60): # Max wait 60 seconds
+            if len(self.updates_for_round.get(round_num, [])) >= num_expected:
+                return
+            await asyncio.sleep(1)
+        task_log(self.task_id, f"Round {round_num} timed out waiting for all updates.")
+
 class ControllerClientPlaceholder:
     def __init__(self, client_id):
         self.client_id = client_id
@@ -292,49 +368,13 @@ class ControllerManager:
     def __init__(self):
         self.sessions: Dict[int, ControllerClient] = {}
         self.available_slots: List[int] = list(range(10, 20))
-    def join_session(self, client_id: int): # Simplified return type
+    def join_session(self, client_id: int):
         if client_id in self.available_slots and self.sessions.get(client_id) is None:
-            self.sessions[client_id] = ControllerClient(client_id=client_id)
-            return self.sessions[client_id]
+            self.sessions[client_id] = ControllerClient(client_id=client_id); return self.sessions[client_id]
         return None
     def get_session(self, client_id: int): return self.sessions.get(client_id)
     def remove_session(self, client_id: int):
         if client_id in self.sessions: del self.sessions[client_id]
-    def __init__(self):
-        self.sessions: Dict[int, ControllerClient] = {}
-        self.available_slots: List[int] = list(range(10, 20))
-
-    def join_session(self, client_id: int) -> ControllerClient | None:
-        if client_id in self.available_slots and self.sessions.get(client_id) is None:
-            session = ControllerClient(client_id=client_id)
-            self.sessions[client_id] = session
-            return session
-        return None
-
-    def get_session(self, client_id: int) -> ControllerClient | None:
-        return self.sessions.get(client_id)
-
-    def remove_session(self, client_id: int):
-        if client_id in self.sessions: del self.sessions[client_id]
-    def __init__(self):
-        # Maps a client ID to its controller session
-        self.sessions: Dict[int, ControllerClient] = {}
-        # Predefined slots for viewers to join
-        self.available_slots: List[int] = list(range(10, 20)) # e.g., clients 10-19 are for viewers
-
-    def join_session(self, client_id: int) -> ControllerClient | None:
-        if client_id in self.available_slots and self.sessions.get(client_id) is None:
-            session = ControllerClient(client_id=client_id)
-            self.sessions[client_id] = session
-            return session
-        return None
-
-    def get_session(self, client_id: int) -> ControllerClient | None:
-        return self.sessions.get(client_id)
-
-    def remove_session(self, client_id: int):
-        if client_id in self.sessions:
-            del self.sessions[client_id]
 
 class ServerManager:
     def __init__(self):
@@ -436,7 +476,6 @@ async def controller_action(request: ActionRequest):
     if not session or session.session_token != request.session_token:
         return JSONResponse(status_code=403, content={"error": "Invalid session."})
 
-    action_handled = False
     next_step = session.current_step
 
     if request.action == "send" and session.task_id and session.round is not None:
@@ -447,17 +486,17 @@ async def controller_action(request: ActionRequest):
                 update = await asyncio.to_thread(deserialize_model_update, f.read())
             
             task.updates_for_round.setdefault(session.round, []).append(update)
-            task.clients_ready_for_round.setdefault(session.round, []).append(session.client_id)
             
-            print(f"CONTROLLER: Injected pre-baked update for client #{session.client_id} into task '{session.task_id}' round {session.round}")
+            print(f"CONTROLLER: Injected pre-baked update for client #{session.client_id} for task '{session.task_id}' round {session.round}")
             
-            session.current_step = "rewarded"
-            session.is_locked = False # Unlock the session after completion
-            action_handled = True
+            # --- FIX: Transition to a waiting state, not rewarded state ---
+            session.current_step = "waiting_for_aggregation"
+            next_step = "waiting_for_aggregation"
+            
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": f"Failed to inject update: {e}"})
 
-    if not action_handled:
+    else:
         print(f"CONTROLLER: Received action '{request.action}' for client #{request.client_id}")
         # --- FIX: Correct and complete state transitions ---
         if request.action == "confirm_data": next_step = "actions_stake"
