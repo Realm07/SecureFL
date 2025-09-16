@@ -393,6 +393,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function stopPolling() { clearInterval(fetchDataInterval); }
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? startPolling() : stopPolling());
-    
+    window.addEventListener('beforeunload', () => {
+        if (state.globe && typeof state.globe.destroy === 'function') {
+            state.globe.destroy();
+            state.globe = null;
+        }
+    });
     initializeDashboard();
 });
