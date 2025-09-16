@@ -140,8 +140,10 @@ document.addEventListener('DOMContentLoaded', () => {
         let totalStake = 0;
         if (state.tokenomics) {
             Object.entries(state.tokenomics).forEach(([clientId, account]) => {
-                globalLeaderboardBody.insertRow().innerHTML = `<td>${clientId}</td><td>${account.stake.toFixed(2)}</td><td>${account.balance.toFixed(2)}</td>`;
-                totalStake += account.stake;
+                // --- FIX: Use the 'total_stake' calculated by the backend ---
+                const clientTotalStake = account.total_stake || 0;
+                globalLeaderboardBody.insertRow().innerHTML = `<td>${clientId}</td><td>${clientTotalStake.toFixed(2)}</td><td>${account.balance.toFixed(2)}</td>`;
+                totalStake += clientTotalStake;
             });
         }
         document.getElementById('total-stake').textContent = `${totalStake.toFixed(2)} PHOENIX`;
@@ -196,7 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="bounty-status ${isCompleted ? 'completed' : 'active'}">${isCompleted ? 'Completed' : 'Active'}</span>
                     </div>
                     <div class="bounty-details">
-                        <p><strong>Dataset:</strong> <span>${task.model_name}</span></p>
+                        <p><strong>Dataset:</strong> <span>${task.dataset_name}</span></p>
                         <p><strong>Model:</strong> <span>${task.model_name}</span></p>
                         <p><strong>Mode:</strong> <span>${task.learning_mode}</span></p>
                         <p><strong>Progress:</strong> <span>${task.current_round}/${task.total_rounds}</span></p>
@@ -344,6 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
             button.disabled = false;
             button.textContent = 'Contribute Stake';
         }
+
     });
 
     // --- INITIALIZATION ---

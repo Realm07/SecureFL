@@ -75,4 +75,12 @@ class TokenManager:
         return True, f"Successfully staked {amount:.2f} tokens."
         
     def get_all_accounts(self) -> Dict[int, Dict[str, Any]]:
-        return self.accounts.copy()
+        # --- FIX: Create a view of the accounts that includes the calculated total_stake ---
+        accounts_view = json.loads(json.dumps(self.accounts)) # Deep copy
+        for client_id, account in accounts_view.items():
+            stake_data = account.get("stake", {})
+            if isinstance(stake_data, dict):
+                account["total_stake"] = sum(stake_data.values())
+            else:
+                account["total_stake"] = 0 # Fallback for malformed data
+        return accounts_view
