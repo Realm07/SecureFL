@@ -129,18 +129,22 @@ class FederationTask:
         self.current_round += 1
         round_num = self.current_round
         
+        # --- FIX: Clear the participants list at the start of every round attempt ---
+        self.last_round_participants = []
+        # --------------------------------------------------------------------------
+
         task_log(self.task_id, f"--- Round {round_num}/{self.config['num_rounds']} ---")
 
         eligible_clients = [cid for cid in manager_instance.connected_clients if manager_instance.token_manager.has_sufficient_stake(cid, manager_instance.MINIMUM_STAKE)]
         if len(eligible_clients) < self.config['clients_per_round']:
             task_log(self.task_id, "Not enough eligible clients. Waiting...")
             self.status = TaskStatus.WAITING_FOR_CLIENTS
-            self.current_round -= 1
+            self.current_round -= 1 # Roll back the round number
             await asyncio.sleep(10)
             return
         
         selected_clients = random.sample(eligible_clients, self.config['clients_per_round'])
-        self.last_round_participants = selected_clients # For post-round acknowledgment
+        self.last_round_participants = selected_clients # Now, set it with the new participants
         self.clients_acknowledged_round[round_num] = set()
         task_log(self.task_id, f"Selected clients for round: {selected_clients}")
         
@@ -227,9 +231,10 @@ class FederationTask:
         
         # Ensure we only use the latest update from each client
         latest_updates = {client_id: update_data for client_id, update_data, _ in updates_to_process}
-        
+         
         participating_clients, final_updates = list(latest_updates.keys()), list(latest_updates.values())
-        
+        self.last_round_participants = participating_clients
+         
         task_log(self.task_id, f"--- Aggregation {self.current_round}/{self.config['num_rounds']} with {len(final_updates)} updates from clients: {participating_clients} ---")
         
         await self._aggregate_and_update_model(final_updates, participating_clients)
