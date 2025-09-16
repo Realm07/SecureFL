@@ -20,7 +20,7 @@ function latLonToVector3(lat, lon, radius) {
 function createCurve(startVec, endVec) {
     const midPoint = startVec.clone().lerp(endVec, 0.5);
     const distance = startVec.distanceTo(endVec);
-    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75); // Adjusted for better arc height
+    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75);
     const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
     const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
     return new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);
@@ -36,11 +36,13 @@ function createGlobe(container) {
     let activePulses = [];
     const cylinderUp = new THREE.Vector3(0, 1, 0);
 
-    // --- Tooltip and Raycasting variables ---
     let tooltipElement;
     let raycaster = new THREE.Raycaster();
     let mouse = new THREE.Vector2();
     let currentlyHovered = null;
+
+    // --- FIX 1: Add a handle for the animation loop to allow cancellation ---
+    let animationFrameId;
 
     function init() {
         scene = new THREE.Scene();
@@ -53,7 +55,6 @@ function createGlobe(container) {
         renderer.setPixelRatio(window.devicePixelRatio);
         container.appendChild(renderer.domElement);
         
-        // Create and append tooltip element
         tooltipElement = document.createElement('div');
         tooltipElement.className = 'globe-tooltip';
         Object.assign(tooltipElement.style, {
@@ -70,13 +71,9 @@ function createGlobe(container) {
         if(subtitle) subtitle.style.display = 'none';
 
         controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.05;
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.2;
-        controls.enablePan = false;
-        controls.minDistance = 150;
-        controls.maxDistance = 400;
+        controls.enableDamping = true; controls.dampingFactor = 0.05;
+        controls.autoRotate = true; controls.autoRotateSpeed = 0.2;
+        controls.enablePan = false; controls.minDistance = 150; controls.maxDistance = 400;
 
         const textureLoader = new THREE.TextureLoader();
         const earthTexture = textureLoader.load('/static/textures/Earth_Night_Map_HIGH.jpg'); 
@@ -101,22 +98,19 @@ function createGlobe(container) {
         const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
         scene.add(atmosphere);
 
-        const hemisphereLight = new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6);
-        scene.add(hemisphereLight);
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-        scene.add(ambientLight);
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6));
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
         composer = new THREE.EffectComposer(renderer);
-        const renderScene = new THREE.RenderPass(scene, camera);
-        const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85);
-        composer.addPass(renderScene);
-        composer.addPass(bloomPass);
+        composer.addPass(new THREE.RenderPass(scene, camera));
+        composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85));
 
         animate();
         window.addEventListener('resize', onWindowResize);
         renderer.domElement.addEventListener('mousemove', onMouseMove);
     }
 
+    // ... (addOrUpdateArc, removeInactiveArcs, clearAllArcs remain the same)
     function addOrUpdateArc(clientId, clientLocation, serverLocation) {
         const key = `arc-${clientId}`;
         if (activeArcs.has(key)) return;
@@ -154,36 +148,44 @@ function createGlobe(container) {
         });
         activeArcs.clear();
     }
-
+    
     function createPulse(curve, color) {
         const pulseGeom = new THREE.CylinderGeometry(PULSE_MAIN_RADIUS, PULSE_MAIN_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
         const pulseMat = new THREE.MeshBasicMaterial({ color: color });
         const pulseMesh = new THREE.Mesh(pulseGeom, pulseMat);
-
         const glowGeom = new THREE.CylinderGeometry(PULSE_GLOW_RADIUS, PULSE_GLOW_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
         const glowMat = new THREE.MeshBasicMaterial({ color: 0x80DEEA, transparent: true, opacity: 0.3 });
-        const glowMesh = new THREE.Mesh(glowGeom, glowMat);
-        pulseMesh.add(glowMesh);
-        
+        pulseMesh.add(new THREE.Mesh(glowGeom, glowMat));
         const pulse = { mesh: pulseMesh, curve: curve, progress: 0, speed: 0.008 };
         activePulses.push(pulse);
         earthMesh.add(pulseMesh);
     }
     
-    function triggerPulse(clientId) {
+    // --- FIX 2: Make pulse triggers robust against race conditions ---
+    function triggerPulse(clientId, retries = 5) {
+        if (retries <= 0) return; // Stop if we can't find the arc
         const key = `arc-${clientId}`;
-        if (activeArcs.has(key)) createPulse(activeArcs.get(key).curve, 0x0077FF);
+        if (activeArcs.has(key)) {
+            createPulse(activeArcs.get(key).curve, 0x0077FF);
+        } else {
+            // Arc doesn't exist yet, wait and try again
+            setTimeout(() => triggerPulse(clientId, retries - 1), 100);
+        }
     }
     
-    function triggerBroadcastPulse(clientId) {
+    function triggerBroadcastPulse(clientId, retries = 5) {
+        if (retries <= 0) return;
         const key = `arc-${clientId}`;
-        if (!activeArcs.has(key)) return;
-        const originalCurve = activeArcs.get(key).curve;
-        const broadcastCurve = new THREE.CubicBezierCurve3(originalCurve.v3, originalCurve.v2, originalCurve.v1, originalCurve.v0);
-        createPulse(broadcastCurve, 0xFFD700);
+        if (activeArcs.has(key)) {
+            const originalCurve = activeArcs.get(key).curve;
+            const broadcastCurve = new THREE.CubicBezierCurve3(originalCurve.v3, originalCurve.v2, originalCurve.v1, originalCurve.v0);
+            createPulse(broadcastCurve, 0xFFD700);
+        } else {
+            setTimeout(() => triggerBroadcastPulse(clientId, retries - 1), 100);
+        }
     }
 
-    function animatePulses() {
+    function animatePulses() { /* ... (no changes needed) ... */
         for (let i = activePulses.length - 1; i >= 0; i--) {
             const pulse = activePulses[i];
             pulse.progress += pulse.speed;
@@ -203,13 +205,14 @@ function createGlobe(container) {
         }
     }
 
-    function triggerServerGlow() {
+    function triggerServerGlow() { /* ... (no changes needed) ... */
         if (!serverGlow) return;
         new TWEEN.Tween(serverGlow.material).to({ opacity: 0.7 }, 300).easing(TWEEN.Easing.Quadratic.Out).yoyo(true).repeat(1).delay(100).start();
     }
-
+    
     function animate() {
-        requestAnimationFrame(animate);
+        // --- FIX 1: Capture the frame ID ---
+        animationFrameId = requestAnimationFrame(animate);
         TWEEN.update();
         if (cloudsMesh && cloudsMesh.visible) cloudsMesh.rotation.y += 0.0001;
         animatePulses();
@@ -217,6 +220,7 @@ function createGlobe(container) {
         composer.render();
     }
 
+    // ... (onWindowResize, onMouseMove, updateClientPoints, etc. remain the same)
     function onWindowResize() {
         camera.aspect = container.clientWidth / container.clientHeight;
         camera.updateProjectionMatrix();
@@ -241,7 +245,6 @@ function createGlobe(container) {
                 let content = `<strong style="color: ${data.type === 'server' ? '#AB74FF' : '#2ECC71'};">${data.type === 'server' ? 'Server' : 'Client'} #${data.id}</strong>`;
                 content += `<div>Location: ${data.location.name}</div>`;
                 if (data.tokenomics) {
-                    // --- FIX: Use correct property 'total_stake' and add fallback for robustness ---
                     const balance = (data.tokenomics.balance || 0).toFixed(2);
                     const stake = (data.tokenomics.total_stake || 0).toFixed(2);
                     content += `<div style="margin-top: 5px;">Balance: ${balance} PHOENIX</div>`;
@@ -305,9 +308,39 @@ function createGlobe(container) {
         new TWEEN.Tween(start).to(targetPosition, 1500).easing(TWEEN.Easing.Quadratic.InOut)
             .onUpdate(() => { camera.position.set(start.x, start.y, start.z); controls.target.set(0, 0, 0); }).start();
     }
-
+    
     function toggleClouds(visible) { if (cloudsMesh) cloudsMesh.visible = visible; }
     function toggleRotation(enabled) { if (controls) controls.autoRotate = enabled; }
+    
+    // --- FIX 1: The crucial cleanup function ---
+    function destroy() {
+        console.log("Destroying Globe instance and cleaning up resources...");
+        cancelAnimationFrame(animationFrameId);
+        window.removeEventListener('resize', onWindowResize);
+        if (renderer) {
+            renderer.domElement.removeEventListener('mousemove', onMouseMove);
+            renderer.dispose();
+             if (renderer.domElement.parentElement) {
+                renderer.domElement.parentElement.removeChild(renderer.domElement);
+            }
+        }
+        if (scene) {
+            scene.traverse(object => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    if (Array.isArray(object.material)) {
+                        object.material.forEach(material => material.dispose());
+                    } else {
+                        object.material.dispose();
+                    }
+                }
+            });
+        }
+        if (tooltipElement) tooltipElement.remove();
+        // Clear all internal state
+        scene = null; camera = null; renderer = null; controls = null; composer = null;
+        clientPoints.clear(); activeArcs.clear(); activePulses = [];
+    }
 
     const tweenScript = document.createElement('script');
     tweenScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js';
@@ -317,6 +350,7 @@ function createGlobe(container) {
     return {
         updateClientPoints, updateServerPoint, addOrUpdateArc, removeInactiveArcs,
         clearAllArcs, triggerPulse, flyTo, toggleClouds, toggleRotation,
-        triggerServerGlow, triggerBroadcastPulse
+        triggerServerGlow, triggerBroadcastPulse,
+        destroy // --- Expose the destroy method ---
     };
 }
