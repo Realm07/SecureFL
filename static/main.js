@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- STATE MANAGEMENT ---
     let state = {
@@ -6,6 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- DOM ELEMENT REFERENCES ---
+    const sidebar = document.querySelector('.sidebar');
+    const sidebarToggleBtn = document.getElementById('sidebar-toggle');
     const sidebarNav = document.querySelector('.sidebar-nav');
     const mainContent = document.querySelector('.main-content');
     const eventLog = document.getElementById('event-log');
@@ -193,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="bounty-status ${isCompleted ? 'completed' : 'active'}">${isCompleted ? 'Completed' : 'Active'}</span>
                     </div>
                     <div class="bounty-details">
-                        <p><strong>Dataset:</strong> <span>${task.dataset_name}</span></p>
+                        <p><strong>Dataset:</strong> <span>${task.model_name}</span></p>
                         <p><strong>Model:</strong> <span>${task.model_name}</span></p>
                         <p><strong>Mode:</strong> <span>${task.learning_mode}</span></p>
                         <p><strong>Progress:</strong> <span>${task.current_round}/${task.total_rounds}</span></p>
@@ -234,6 +237,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // --- EVENT LISTENERS ---
+    sidebarToggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('collapsed');
+        const icon = sidebarToggleBtn.querySelector('i');
+        if (sidebar.classList.contains('collapsed')) {
+            icon.classList.remove('fa-angle-double-left');
+            icon.classList.add('fa-angle-double-right');
+        } else {
+            icon.classList.remove('fa-angle-double-right');
+            icon.classList.add('fa-angle-double-left');
+        }
+    });
+
     selectedTaskDisplay.addEventListener('click', () => taskSelectContainer.classList.toggle('open'));
     taskOptionsList.addEventListener('click', (e) => {
         const option = e.target.closest('.task-option');
@@ -299,8 +314,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // For this simulation, we'll prompt for a client ID.
-        // In a real app, this would come from user authentication.
         const clientIdStr = prompt("Enter your Client ID (0-9) to stake tokens:", "0");
         if (clientIdStr === null) return; // User cancelled
         const clientId = parseInt(clientIdStr);

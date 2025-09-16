@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phoenix Federation Dashboard</title>
+    <title>AegisMesh Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -13,7 +13,10 @@
 <body>
 
     <header class="main-header">
-        <div class="header-title">Phoenix</div>
+        <div class="header-title-container">
+            <img src="/static/textures/logo.png" alt="AegisMesh Logo" class="header-logo">
+            <div class="header-title">AegisMesh</div>
+        </div>
         <div class="status-indicator">
             <div id="connection-status-dot" class="status-dot disconnected"></div>
             <span id="connection-status-text">Disconnected</span>
@@ -22,7 +25,12 @@
 
     <div class="dashboard-body">
         <aside class="sidebar">
-            <div class="sidebar-header">Phoenix</div>
+            <div class="sidebar-header">
+                <span>Navigation</span>
+                <button id="sidebar-toggle" class="sidebar-toggle-btn">
+                    <i class="fas fa-angle-double-left"></i>
+                </button>
+            </div>
             <nav class="sidebar-nav">
                 <a href="#" class="active" data-view="monitor-view"><i class="fas fa-network-wired"></i><span>Live Network Monitor</span></a>
                 <a href="#" data-view="marketplace-view"><i class="fas fa-store"></i><span>Model Marketplace</span></a>
@@ -97,7 +105,6 @@
                             <div class="card-content" style="flex-grow: 1; display: flex; flex-direction: column;">
                                 <div class="metric-grid">
                                     <div><strong>Connected Clients:</strong> <span id="connected-clients-count">0</span></div>
-                                    <div><strong>Live TPS:</strong> <span id="live-tps">--</span></div>
                                     <div class="total-stake"><strong>Total Stake:</strong> <span id="total-stake">0 PHOENIX</span></div>
                                 </div>
                                 <div class="tab-container">
