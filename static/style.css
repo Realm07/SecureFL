@@ -39,7 +39,10 @@ body { margin: 0; font-family: var(--font-family); background-color: var(--bg-ma
 
 /* --- Sidebar --- */
 .sidebar-header { color: var(--text-primary); font-size: 18px; font-weight: 600; margin-bottom: 30px; padding: 10px; height: 60px; display: flex; align-items: center; justify-content: space-between; }
-.sidebar-toggle-btn { background: var(--accent-purple); border: none; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.3s ease-in-out, background-color 0.2s; }
+.sidebar-toggle-btn {
+    transform: rotate(0deg); /* baseline */
+    transition: transform 0.3s ease-in-out, background-color 0.2s;
+}
 .sidebar-toggle-btn:hover { background-color: #7022d9; }
 .sidebar-nav a { display: flex; align-items: center; padding: 12px 10px; color: var(--text-secondary); text-decoration: none; border-radius: 6px; margin-bottom: 8px; transition: all 0.2s ease-in-out; border-left: 3px solid transparent; white-space: nowrap; }
 .sidebar-nav a:hover { color: var(--text-primary); }
