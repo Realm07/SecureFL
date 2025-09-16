@@ -28,116 +28,94 @@ function createCurve(startVec, endVec) {
 
 // --- MAIN GLOBE FUNCTION ---
 function createGlobe(container) {
-    let scene, camera, renderer, controls, earthMesh, cloudsMesh, composer;
-    let clientPoints = new Map();
-    let serverPoint = null;
-    let serverGlow = null;
-    let activeArcs = new Map();
-    let activePulses = [];
-    const cylinderUp = new THREE.Vector3(0, 1, 0);
+    // Wrap the entire setup in a Promise to handle asynchronous script loading
+    return new Promise((resolve, reject) => {
+        let scene, camera, renderer, controls, earthMesh, cloudsMesh, composer;
+        let clientPoints = new Map();
+        let serverPoint = null;
+        let serverGlow = null;
+        let activeArcs = new Map();
+        let activePulses = [];
+        const cylinderUp = new THREE.Vector3(0, 1, 0);
 
-    let tooltipElement;
-    let raycaster = new THREE.Raycaster();
-    let mouse = new THREE.Vector2();
-    let currentlyHovered = null;
+        let tooltipElement;
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let currentlyHovered = null;
+        let animationFrameId;
 
-    // --- FIX 1: Add a handle for the animation loop to allow cancellation ---
-    let animationFrameId;
+        function init() {
+            try {
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
+                camera.position.z = 250;
 
-    function init() {
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
-        camera.position.z = 250;
+                renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                renderer.setClearAlpha(0.0);
+                renderer.setSize(container.clientWidth, container.clientHeight);
+                renderer.setPixelRatio(window.devicePixelRatio);
+                container.appendChild(renderer.domElement);
+                
+                tooltipElement = document.createElement('div');
+                tooltipElement.className = 'globe-tooltip';
+                Object.assign(tooltipElement.style, {
+                    position: 'absolute', display: 'none', backgroundColor: 'rgba(20, 20, 30, 0.85)',
+                    color: '#E0E0E0', padding: '8px 12px', borderRadius: '4px', fontFamily: 'sans-serif',
+                    fontSize: '13px', pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: '100',
+                    border: '1px solid rgba(138, 63, 252, 0.5)'
+                });
+                container.appendChild(tooltipElement);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setClearAlpha(0.0);
-        renderer.setSize(container.clientWidth, container.clientHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        container.appendChild(renderer.domElement);
-        
-        tooltipElement = document.createElement('div');
-        tooltipElement.className = 'globe-tooltip';
-        Object.assign(tooltipElement.style, {
-            position: 'absolute', display: 'none', backgroundColor: 'rgba(20, 20, 30, 0.85)',
-            color: '#E0E0E0', padding: '8px 12px', borderRadius: '4px', fontFamily: 'sans-serif',
-            fontSize: '13px', pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: '100',
-            border: '1px solid rgba(138, 63, 252, 0.5)'
-        });
-        container.appendChild(tooltipElement);
+                const title = document.querySelector('.globe-title');
+                if(title) title.style.display = 'none';
+                const subtitle = document.querySelector('.globe-subtitle');
+                if(subtitle) subtitle.style.display = 'none';
 
-        const title = document.querySelector('.globe-title');
-        const subtitle = document.querySelector('.globe-subtitle');
-        if(title) title.style.display = 'none';
-        if(subtitle) subtitle.style.display = 'none';
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true; controls.dampingFactor = 0.05;
+                controls.autoRotate = true; controls.autoRotateSpeed = 0.2;
+                controls.enablePan = false; controls.minDistance = 150; controls.maxDistance = 400;
 
-        controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true; controls.dampingFactor = 0.05;
-        controls.autoRotate = true; controls.autoRotateSpeed = 0.2;
-        controls.enablePan = false; controls.minDistance = 150; controls.maxDistance = 400;
+                const textureLoader = new THREE.TextureLoader();
+                const earthTexture = textureLoader.load('/static/textures/Earth_Night_Map_HIGH.jpg'); 
+                const specularMap = textureLoader.load('/static/textures/Earth_Specular_Map_HIGH.tif'); 
+                const earthMaterial = new THREE.MeshPhongMaterial({ map: earthTexture, specularMap: specularMap, specular: new THREE.Color('#111111'), shininess: 5 });
+                const earthGeometry = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
+                earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
+                scene.add(earthMesh);
 
-        const textureLoader = new THREE.TextureLoader();
-        const earthTexture = textureLoader.load('/static/textures/Earth_Night_Map_HIGH.jpg'); 
-        const specularMap = textureLoader.load('/static/textures/Earth_Specular_Map_HIGH.tif'); 
-        const earthMaterial = new THREE.MeshPhongMaterial({ map: earthTexture, specularMap: specularMap, specular: new THREE.Color('#111111'), shininess: 5 });
-        const earthGeometry = new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64);
-        earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
-        scene.add(earthMesh);
+                const cloudTexture = textureLoader.load('/static/textures/Earth_Clouds_HIGH.jpg');
+                const cloudMaterial = new THREE.MeshLambertMaterial({ map: cloudTexture, transparent: true, opacity: 0.15 });
+                const cloudGeometry = new THREE.SphereGeometry(GLOBE_RADIUS + 0.5, 64, 64);
+                cloudsMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                scene.add(cloudsMesh);
 
-        const cloudTexture = textureLoader.load('/static/textures/Earth_Clouds_HIGH.jpg');
-        const cloudMaterial = new THREE.MeshLambertMaterial({ map: cloudTexture, transparent: true, opacity: 0.15 });
-        const cloudGeometry = new THREE.SphereGeometry(GLOBE_RADIUS + 0.5, 64, 64);
-        cloudsMesh = new THREE.Mesh(cloudGeometry, cloudMaterial);
-        scene.add(cloudsMesh);
+                const atmosphereMaterial = new THREE.ShaderMaterial({ vertexShader: `varying vec3 vNormal; void main() { vNormal = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`, fragmentShader: `varying vec3 vNormal; void main() { float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0); gl_FragColor = vec4(0.0, 0.70, 0.85, 1.0) * intensity; }`, blending: THREE.AdditiveBlending, side: THREE.BackSide, transparent: true });
+                const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(GLOBE_RADIUS * 1.01, 64, 64), atmosphereMaterial);
+                scene.add(atmosphere);
 
-        const atmosphereMaterial = new THREE.ShaderMaterial({
-            vertexShader: `varying vec3 vNormal; void main() { vNormal = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-            fragmentShader: `varying vec3 vNormal; void main() { float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0); gl_FragColor = vec4(0.0, 0.70, 0.85, 1.0) * intensity; }`,
-            blending: THREE.AdditiveBlending, side: THREE.BackSide, transparent: true
-        });
-        const atmosphereGeometry = new THREE.SphereGeometry(GLOBE_RADIUS * 1.01, 64, 64);
-        const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-        scene.add(atmosphere);
+                scene.add(new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6));
+                scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-        scene.add(new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6));
-        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+                composer = new THREE.EffectComposer(renderer);
+                composer.addPass(new THREE.RenderPass(scene, camera));
+                composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85));
 
-        composer = new THREE.EffectComposer(renderer);
-        composer.addPass(new THREE.RenderPass(scene, camera));
-        composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85));
+                animate();
+                window.addEventListener('resize', onWindowResize);
+                renderer.domElement.addEventListener('mousemove', onMouseMove);
 
-        animate();
-        window.addEventListener('resize', onWindowResize);
-        renderer.domElement.addEventListener('mousemove', onMouseMove);
-    }
-
-    // ... (addOrUpdateArc, removeInactiveArcs, clearAllArcs remain the same)
-    function addOrUpdateArc(clientId, clientLocation, serverLocation) {
-        const key = `arc-${clientId}`;
-        if (activeArcs.has(key)) return;
-        const startVec = latLonToVector3(clientLocation.lat, clientLocation.lon, GLOBE_RADIUS);
-        const endVec = latLonToVector3(serverLocation.lat, serverLocation.lon, GLOBE_RADIUS);
-        const curve = createCurve(startVec, endVec);
-        const geometry = new THREE.TubeGeometry(curve, 64, ARC_THICKNESS, 8, false);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00B4D8, transparent: true, opacity: 0 });
-        const arcMesh = new THREE.Mesh(geometry, material);
-        earthMesh.add(arcMesh);
-        let progress = { value: 0 };
-        const tween = new TWEEN.Tween(progress).to({ value: 1 }, 500).onUpdate(() => { arcMesh.material.opacity = progress.value; }).start();
-        activeArcs.set(key, { mesh: arcMesh, curve, tween });
-    }
-
-    function removeInactiveArcs(connectedClientIds) {
-        activeArcs.forEach((arcData, key) => {
-            const arcClientId = parseInt(key.split('-')[1]);
-            if (!connectedClientIds.includes(arcClientId)) {
-                earthMesh.remove(arcData.mesh);
-                arcData.mesh.geometry.dispose();
-                arcData.mesh.material.dispose();
-                TWEEN.remove(arcData.tween);
-                activeArcs.delete(key);
+                console.log("%c[globe.js] Initialization complete. Globe is ready.", "color: green; font-weight: bold;");
+                resolve({
+                    updateClientPoints, updateServerPoint, addOrUpdateArc, removeInactiveArcs,
+                    clearAllArcs, triggerPulse, flyTo, toggleClouds, toggleRotation,
+                    triggerServerGlow, triggerBroadcastPulse, destroy
+                });
+            } catch (error) {
+                console.error("[globe.js] Initialization failed:", error);
+                reject(error);
             }
-        });
-    }
+        }
 
     function clearAllArcs() {
         activeArcs.forEach((arcData) => {
@@ -150,46 +128,68 @@ function createGlobe(container) {
     }
     
     function createPulse(curve, color) {
-        const pulseGeom = new THREE.CylinderGeometry(PULSE_MAIN_RADIUS, PULSE_MAIN_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
-        const pulseMat = new THREE.MeshBasicMaterial({ color: color });
-        const pulseMesh = new THREE.Mesh(pulseGeom, pulseMat);
-        const glowGeom = new THREE.CylinderGeometry(PULSE_GLOW_RADIUS, PULSE_GLOW_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
-        const glowMat = new THREE.MeshBasicMaterial({ color: 0x80DEEA, transparent: true, opacity: 0.3 });
-        pulseMesh.add(new THREE.Mesh(glowGeom, glowMat));
-        const pulse = { mesh: pulseMesh, curve: curve, progress: 0, speed: 0.008 };
-        activePulses.push(pulse);
-        earthMesh.add(pulseMesh);
-    }
+            console.log(`[globe.js] createPulse: Creating a new pulse object. Current active pulses: ${activePulses.length}`);
+            const pulseGeom = new THREE.CylinderGeometry(PULSE_MAIN_RADIUS, PULSE_MAIN_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
+            const pulseMat = new THREE.MeshBasicMaterial({ color: color });
+            const pulseMesh = new THREE.Mesh(pulseGeom, pulseMat);
+            const glowGeom = new THREE.CylinderGeometry(PULSE_GLOW_RADIUS, PULSE_GLOW_RADIUS, PULSE_CYLINDER_HEIGHT, 16);
+            const glowMat = new THREE.MeshBasicMaterial({ color: 0x80DEEA, transparent: true, opacity: 0.3 });
+            pulseMesh.add(new THREE.Mesh(glowGeom, glowMat));
+            const pulse = { mesh: pulseMesh, curve: curve, progress: 0, speed: 0.008 };
+            activePulses.push(pulse);
+            earthMesh.add(pulseMesh);
+            console.log(`[globe.js] createPulse: Pulse created and added. New active pulses count: ${activePulses.length}`);
+        }
     
-    // --- FIX 2: Make pulse triggers robust against race conditions ---
     function triggerPulse(clientId, retries = 5) {
-        if (retries <= 0) return; // Stop if we can't find the arc
-        const key = `arc-${clientId}`;
-        if (activeArcs.has(key)) {
-            createPulse(activeArcs.get(key).curve, 0x0077FF);
-        } else {
-            // Arc doesn't exist yet, wait and try again
-            setTimeout(() => triggerPulse(clientId, retries - 1), 100);
+            const key = `arc-${clientId}`;
+            console.log(`[globe.js] triggerPulse: Attempting to trigger pulse for Client #${clientId}. Arc key: '${key}'. Retries left: ${retries}`);
+            
+            if (retries <= 0)  {
+                console.error(`[globe.js] triggerPulse: FAILED for Client #${clientId}. Arc '${key}' not found after all retries.`);
+                return; 
+            }
+            
+            if (activeArcs.has(key)) {
+                console.log(`%c[globe.js] triggerPulse: SUCCESS for Client #${clientId}. Arc '${key}' found. Calling createPulse.`, 'color: #00FF00');
+                createPulse(activeArcs.get(key).curve, 0x0077FF);
+            } else {
+                console.warn(`[globe.js] triggerPulse: Arc '${key}' for Client #${clientId} not found. Retrying in 100ms...`);
+                setTimeout(() => triggerPulse(clientId, retries - 1), 100);
+            }
         }
-    }
-    
-    function triggerBroadcastPulse(clientId, retries = 5) {
-        if (retries <= 0) return;
-        const key = `arc-${clientId}`;
-        if (activeArcs.has(key)) {
-            const originalCurve = activeArcs.get(key).curve;
-            const broadcastCurve = new THREE.CubicBezierCurve3(originalCurve.v3, originalCurve.v2, originalCurve.v1, originalCurve.v0);
-            createPulse(broadcastCurve, 0xFFD700);
-        } else {
-            setTimeout(() => triggerBroadcastPulse(clientId, retries - 1), 100);
-        }
-    }
 
-    function animatePulses() { /* ... (no changes needed) ... */
+    function triggerBroadcastPulse(clientId, retries = 5) {
+            const key = `arc-${clientId}`;
+            console.log(`[globe.js] triggerBroadcastPulse: Attempting for Client #${clientId}. Arc key: '${key}'. Retries left: ${retries}`);
+            
+            if (retries <= 0) {
+                console.error(`[globe.js] triggerBroadcastPulse: FAILED for Client #${clientId}. Arc '${key}' not found.`);
+                return;
+            }
+
+            if (activeArcs.has(key)) {
+                console.log(`%c[globe.js] triggerBroadcastPulse: SUCCESS for Client #${clientId}. Arc '${key}' found. Calling createPulse.`, 'color: #00FF00');
+                const originalCurve = activeArcs.get(key).curve;
+                const broadcastCurve = new THREE.CubicBezierCurve3(originalCurve.v3, originalCurve.v2, originalCurve.v1, originalCurve.v0);
+                createPulse(broadcastCurve, 0xFFD700);
+            } else {
+                console.warn(`[globe.js] triggerBroadcastPulse: Arc '${key}' for Client #${clientId} not found. Retrying...`);
+                setTimeout(() => triggerBroadcastPulse(clientId, retries - 1), 100);
+            }
+        }
+    function animatePulses() {
+        if (activePulses.length > 0) {
+            // This log can be very noisy, so we only log if something is actually there.
+            // console.log(`[globe.js] animatePulses: Animating ${activePulses.length} pulses.`);
+        }
         for (let i = activePulses.length - 1; i >= 0; i--) {
             const pulse = activePulses[i];
             pulse.progress += pulse.speed;
             if (pulse.progress >= 1) {
+                // --- DEBUG ---
+                // console.log(`[globe.js] animatePulses: Removing pulse ${i}.`);
+                // -----------
                 earthMesh.remove(pulse.mesh);
                 pulse.mesh.traverse(child => { if (child.geometry) child.geometry.dispose(); if (child.material) child.material.dispose(); });
                 activePulses.splice(i, 1);
@@ -312,45 +312,40 @@ function createGlobe(container) {
     function toggleClouds(visible) { if (cloudsMesh) cloudsMesh.visible = visible; }
     function toggleRotation(enabled) { if (controls) controls.autoRotate = enabled; }
     
-    // --- FIX 1: The crucial cleanup function ---
     function destroy() {
-        console.log("Destroying Globe instance and cleaning up resources...");
-        cancelAnimationFrame(animationFrameId);
-        window.removeEventListener('resize', onWindowResize);
-        if (renderer) {
-            renderer.domElement.removeEventListener('mousemove', onMouseMove);
-            renderer.dispose();
-             if (renderer.domElement.parentElement) {
-                renderer.domElement.parentElement.removeChild(renderer.domElement);
-            }
-        }
-        if (scene) {
-            scene.traverse(object => {
-                if (object.geometry) object.geometry.dispose();
-                if (object.material) {
-                    if (Array.isArray(object.material)) {
-                        object.material.forEach(material => material.dispose());
-                    } else {
-                        object.material.dispose();
-                    }
+            console.log("Destroying Globe instance and cleaning up resources...");
+            cancelAnimationFrame(animationFrameId);
+            window.removeEventListener('resize', onWindowResize);
+            if (renderer) {
+                renderer.domElement.removeEventListener('mousemove', onMouseMove);
+                renderer.dispose();
+                if (renderer.domElement.parentElement) {
+                    renderer.domElement.parentElement.removeChild(renderer.domElement);
                 }
-            });
+            }
+            if (scene) {
+                scene.traverse(object => {
+                    if (object.geometry) object.geometry.dispose();
+                    if (object.material) {
+                        if (Array.isArray(object.material)) object.material.forEach(m => m.dispose());
+                        else object.material.dispose();
+                    }
+                });
+            }
+            if (tooltipElement) tooltipElement.remove();
+            scene = null; camera = null; renderer = null; controls = null; composer = null;
+            clientPoints.clear(); activeArcs.clear(); activePulses = [];
         }
-        if (tooltipElement) tooltipElement.remove();
-        // Clear all internal state
-        scene = null; camera = null; renderer = null; controls = null; composer = null;
-        clientPoints.clear(); activeArcs.clear(); activePulses = [];
-    }
 
-    const tweenScript = document.createElement('script');
-    tweenScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js';
-    tweenScript.onload = init;
-    document.head.appendChild(tweenScript);
-
-    return {
-        updateClientPoints, updateServerPoint, addOrUpdateArc, removeInactiveArcs,
-        clearAllArcs, triggerPulse, flyTo, toggleClouds, toggleRotation,
-        triggerServerGlow, triggerBroadcastPulse,
-        destroy // --- Expose the destroy method ---
-    };
+        // --- Asynchronous script loading ---
+        const tweenScript = document.createElement('script');
+        tweenScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js';
+        tweenScript.onload = init; // init() is the success callback
+        tweenScript.onerror = () => {
+            const errorMsg = "Failed to load Tween.js library. Globe cannot be initialized.";
+            console.error(errorMsg);
+            reject(new Error(errorMsg));
+        };
+        document.head.appendChild(tweenScript);
+    });
 }

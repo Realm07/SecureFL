@@ -152,41 +152,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function generateLiveLogsAndPulses(prevState, currentState) {
-        if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) return;
-        for (const taskId in currentState.tasks) {
-            const prevTask = prevState.tasks[taskId] || { current_round: 0, status: '', metric_history: [], selected_clients: [] };
-            const currentTask = currentState.tasks[taskId];
-            
-            // --- ROBUSTNESS FIX: Only trigger animations for the currently selected task ---
-            if (currentTask.current_round > prevTask.current_round) {
-                const metricName = currentTask.metric.toUpperCase();
-                const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
-                logEvent(`Task '${taskId}' round ${currentTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
-                // Only trigger globe effects if the event is for the task we are currently watching.
-                if (state.globe && taskId === state.selectedTaskId) {
-                    state.globe.triggerServerGlow();
-                    const participatingClients = currentTask.selected_clients || [];
-                    participatingClients.forEach((clientId, index) => {
-                        setTimeout(() => { state.globe.triggerBroadcastPulse(clientId); }, index * 100); 
-                    });
-                }
-            }
-
-            if (currentTask.status !== prevTask.status) { logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`); }
-            
-            // This part was already correct: it triggers pulses from clients who finished training for the selected task.
-            if (state.selectedTaskId === taskId && state.globe) {
-                const newlyReadyClients = (currentTask.selected_clients || []).filter(id => !(prevTask.selected_clients || []).includes(id));
-                newlyReadyClients.forEach(clientId => {
-                    logEvent(`Client #${clientId} finished training for task '${taskId}'.`, 'success');
-                    state.globe.triggerPulse(clientId);
-                });
-            }
+        console.log("[main.js] Checking for state changes to generate pulses...");
+        if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) {
+            return;
         }
+
         const prevClients = (prevState.network.connected_clients || []).map(c => c.id);
         const currentClients = (currentState.network.connected_clients || []).map(c => c.id);
         currentClients.filter(id => !prevClients.includes(id)).forEach(id => logEvent(`Client #${id} connected.`));
         prevClients.filter(id => !currentClients.includes(id)).forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
+        
+        for (const taskId in currentState.tasks) {
+            if (!prevState.tasks[taskId]) continue;
+
+            const prevTask = prevState.tasks[taskId];
+            const currentTask = currentState.tasks[taskId];
+
+            // --- EVENT: Round/Aggregation Complete (Server -> Client Pulse) ---
+            // This logic is correct. It triggers when a round number increments.
+            if (currentTask.current_round > prevTask.current_round) {
+                console.log(`[main.js] EVENT DETECTED: Round complete for task '${taskId}' (Round ${prevTask.current_round} -> ${currentTask.current_round})`);
+                const metricName = currentTask.metric.toUpperCase();
+                const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
+                logEvent(`Task '${taskId}' round ${currentTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
+                
+                if (state.globe && taskId === state.selectedTaskId) {
+                    console.log(`%c[main.js] Broadcasting pulses for completed round.`, 'color: #FFA500');
+                    state.globe.triggerServerGlow();
+                    // 'selected_clients' from the server status correctly refers to the participants of the round that just finished.
+                    const participatingClients = currentTask.selected_clients || [];
+                    console.log(`[main.js] Broadcasting to clients: [${participatingClients.join(', ')}]`);
+                    if (participatingClients.length > 0) {
+                        participatingClients.forEach((clientId, index) => {
+                            setTimeout(() => { state.globe.triggerBroadcastPulse(clientId); }, index * 100);
+                        });
+                    }
+                }
+            }
+
+            // --- FIX: Logic for Client -> Server Pulse ---
+            // The server sets `selected_clients` when a round begins. This list represents
+            // clients that are currently training and will soon send an update.
+            const prevSelected = prevTask.selected_clients || [];
+            const currentSelected = currentTask.selected_clients || [];
+            
+            // Trigger when the list of selected clients changes, meaning a new round has started for them.
+            if (JSON.stringify(prevSelected) !== JSON.stringify(currentSelected) && currentSelected.length > 0) {
+                console.log(`[main.js] EVENT DETECTED: New clients selected for task '${taskId}'. Prev: [${prevSelected.join(', ')}], Curr: [${currentSelected.join(', ')}]`);
+                 if (state.selectedTaskId === taskId && state.globe) {
+                    console.log(`%c[main.js] Triggering client->server pulses for newly selected clients.`, 'color: #00BFFF');
+                    currentSelected.forEach(clientId => {
+                        logEvent(`Client #${clientId} selected for training, sending update for task '${taskId}'.`, 'success');
+                        state.globe.triggerPulse(clientId);
+                    });
+                }
+            }
+        }
     }
 
     function updateMarketplace() {
@@ -241,7 +262,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             connectionStatusDot.className = 'status-dot disconnected';
             connectionStatusText.textContent = 'Disconnected';
-            console.error("Fetch error:", error);
+            // --- MODIFICATION: Don't log the earthmesh error as a generic fetch error ---
+            if (!error.message.includes('earthMesh')) {
+                console.error("Fetch error:", error);
+            }
         }
     }
 
@@ -371,19 +395,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- INITIALIZATION ---
-    function initializeDashboard() {
+    async function initializeDashboard() {
         logEvent('Dashboard Initialized. Connecting to server...');
         if (typeof Chart === 'undefined' || typeof THREE === 'undefined' || typeof createGlobe === 'undefined') {
             logEvent('Error: A required library failed to load.', 'error'); return;
         }
         initializeAccuracyChart();
         const globeContainer = document.getElementById('globe-container');
-        if (globeContainer) state.globe = createGlobe(globeContainer);
-        if (document.visibilityState === 'visible') {
-            startPolling();
-            fetchTokenomicsData();
+        if (globeContainer) {
+            try {
+                // Await the globe's readiness before proceeding
+                state.globe = await createGlobe(globeContainer);
+                
+                // Now that the globe is ready, start polling for data
+                if (document.visibilityState === 'visible') {
+                    startPolling();
+                    fetchTokenomicsData();
+                }
+            } catch (error) {
+                logEvent(`FATAL: Could not initialize globe. ${error.message}`, 'error');
+            }
         }
     }
+
 
     let fetchDataInterval;
     function startPolling() { 
