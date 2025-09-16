@@ -4,14 +4,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // DOM References
     const screens = { login: document.getElementById('login-screen'), waiting: document.getElementById('waiting-screen'), control: document.getElementById('control-screen') };
-    const steps = { data: document.getElementById('step-data'), actions: document.getElementById('step-actions'), rewarded: document.getElementById('step-rewarded') };
+    const steps = {
+        data: document.getElementById('step-data'),
+        actions: document.getElementById('step-actions'),
+        rewarded: document.getElementById('step-rewarded'),
+        waiting_agg: document.getElementById('step-waiting-agg') // This was the missing piece
+    };
+    
     const connectionStatus = document.getElementById('connection-status');
     const slotContainer = document.getElementById('slot-container');
     const dataGrid = document.getElementById('data-grid');
     const confirmDataBtn = document.getElementById('confirm-data-btn');
     const actionBtns = document.querySelectorAll('.action-btn');
     const nextRoundBtn = document.getElementById('next-round-btn');
-
+    const dataVisualization = document.getElementById('data-visualization');
+    const rawDataPre = document.getElementById('raw-data-pre');
+    const encryptedDataPre = document.getElementById('encrypted-data-pre');
+    let dummyRawData = {};
+    
     // UI Helpers
     function showScreen(screenName) { Object.values(screens).forEach(s => s.classList.remove('active')); screens[screenName].classList.add('active'); }
     function showStep(stepName) { Object.values(steps).forEach(s => s.classList.remove('active')); steps[stepName].classList.add('active'); }
@@ -66,16 +76,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const status = await apiCall('/controller/status', 'POST', {
                 client_id: state.clientId, session_token: state.sessionToken
             });
-            // --- FIX: Transition to control panel only when the server says so ---
-            if (status.current_step.startsWith('control_panel')) {
-                stopStatusPolling();
-                showScreen('control');
-                setupControlScreenForTask(status);
-            } else if (status.current_step === 'rewarded') {
+
+            // --- FIX: Check for the 'rewarded' state BEFORE checking for a new task ---
+            if (status.current_step === 'rewarded') {
                 stopStatusPolling();
                 showScreen('control');
                 showStep('rewarded');
+            } else if (status.current_step.startsWith('control_panel')) {
+                stopStatusPolling();
+                showScreen('control');
+                setupControlScreenForTask(status);
             }
+            // If the state is still 'waiting_for_aggregation' or 'waiting_for_task', this function will do nothing
+            // and the polling will continue on the next interval, which is the correct behavior.
+
         } catch (error) { console.error("Status poll failed:", error); }
     }
 
@@ -89,6 +103,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('task-title').textContent = `Task: ${status.task_info.task_id}`;
         resetActionButtons();
         populateDataGrid();
+        // --- NEW: Hide visualization on new task setup ---
+        dataVisualization.style.display = 'none';
+        
         const dpButton = document.querySelector('.action-btn[data-action="dp"]');
         dpButton.style.display = status.task_info.privacy_profile.includes('dp') ? 'flex' : 'none';
         
@@ -151,12 +168,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnElement.innerHTML = `<span>${btnElement.querySelector('span').textContent}</span> <i class="fas fa-check"></i> ${actionText} Complete`;
             }
 
+             if (action === 'train') {
+                dummyRawData = {
+                    "patientId": `C${state.clientId}-P${Math.floor(100 + Math.random() * 900)}`,
+                    "modelUpdate": { "layer1.w": "0.0123", "layer1.b": "-0.0045" }
+                };
+                rawDataPre.textContent = JSON.stringify(dummyRawData, null, 2);
+                encryptedDataPre.textContent = "Waiting for encryption...";
+                dataVisualization.style.display = 'block';
+            }
+            if (action === 'encrypt') {
+                encryptedDataPre.textContent = `{"ciphertext": "0x${[...Array(32)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')}..."}`;
+            }
+            if (action === 'send') {
+                 dataVisualization.style.display = 'none';
+            }
+
+            // ... (Handle next_step logic) ...
             const nextStepAction = response.next_step.replace('actions_', '');
-            
-            // --- FIX: Correctly handle the new waiting_for_aggregation state ---
+
             if (response.next_step === "waiting_for_aggregation") {
                 showStep('waiting_agg');
-                startStatusPolling(); // Start polling to see when we get rewarded
+                startStatusPolling();
             } else if (response.next_step.startsWith('actions_')) {
                 showStep('actions');
                 const nextButton = document.querySelector(`.action-btn[data-action="${nextStepAction}"]`);
@@ -170,7 +203,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     actionBtns.forEach(btn => btn.addEventListener('click', () => handleAction(btn.dataset.action, btn)));
-    nextRoundBtn.addEventListener('click', () => { showScreen('waiting'); startStatusPolling(); });
+    nextRoundBtn.addEventListener('click', async () => {
+        try {
+            await apiCall('/controller/action', 'POST', {
+                client_id: state.clientId,
+                session_token: state.sessionToken,
+                action: 'ready_for_next_round'
+            });
+            
+            showScreen('waiting'); 
+            startStatusPolling();
+        } catch (error) {
+            console.error("Failed to signal readiness for the next round:", error);
+            showScreen('waiting');
+            startStatusPolling();
+        }
+    });
     
     initializeLogin();
 });
