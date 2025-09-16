@@ -20,7 +20,8 @@ function latLonToVector3(lat, lon, radius) {
 function createCurve(startVec, endVec) {
     const midPoint = startVec.clone().lerp(endVec, 0.5);
     const distance = startVec.distanceTo(endVec);
-    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75);
+    // Raise the control point higher for a more pronounced arc
+    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 0.75); 
     const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
     const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
     return new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);
@@ -31,7 +32,7 @@ function createGlobe(container) {
     let scene, camera, renderer, controls, earthMesh, cloudsMesh, composer;
     let clientPoints = new Map();
     let serverPoint = null;
-    let serverGlow = null; // For the new glow effect
+    let serverGlow = null;
     let activeArcs = new Map();
     let activePulses = [];
     const cylinderUp = new THREE.Vector3(0, 1, 0);
@@ -56,6 +57,21 @@ function createGlobe(container) {
         // --- NEW: Create and append tooltip element ---
         tooltipElement = document.createElement('div');
         tooltipElement.className = 'globe-tooltip';
+        // Add some basic styles directly, in case a stylesheet isn't available
+        Object.assign(tooltipElement.style, {
+            position: 'absolute',
+            display: 'none',
+            backgroundColor: 'rgba(20, 20, 30, 0.85)',
+            color: '#E0E0E0',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontFamily: 'sans-serif',
+            fontSize: '13px',
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            zIndex: '100',
+            border: '1px solid rgba(138, 63, 252, 0.5)'
+        });
         container.appendChild(tooltipElement);
 
         const title = document.querySelector('.globe-title');
@@ -112,7 +128,6 @@ function createGlobe(container) {
         renderer.domElement.addEventListener('mousemove', onMouseMove);
     }
 
-    // --- FEATURE: Animate Arc Appearance ---
     function addOrUpdateArc(clientId, clientLocation, serverLocation) {
         const key = `arc-${clientId}`;
         if (activeArcs.has(key)) return;
@@ -161,7 +176,7 @@ function createGlobe(container) {
         const glowMesh = new THREE.Mesh(glowGeom, glowMat);
         pulseMesh.add(glowMesh);
         
-        const pulse = { mesh: pulseMesh, curve: curve, progress: 0, speed: 0.008, quaternion: new THREE.Quaternion() };
+        const pulse = { mesh: pulseMesh, curve: curve, progress: 0, speed: 0.008 };
         activePulses.push(pulse);
         earthMesh.add(pulseMesh);
     }
@@ -171,14 +186,12 @@ function createGlobe(container) {
         if (activeArcs.has(key)) createPulse(activeArcs.get(key).curve, 0x0077FF);
     }
     
-    // --- FEATURE: Yellow Broadcast Pulse ---
     function triggerBroadcastPulse(clientId) {
         const key = `arc-${clientId}`;
         if (!activeArcs.has(key)) return;
         const originalCurve = activeArcs.get(key).curve;
-        // Create a new curve travelling in the opposite direction (server to client)
         const broadcastCurve = new THREE.CubicBezierCurve3(originalCurve.v3, originalCurve.v2, originalCurve.v1, originalCurve.v0);
-        createPulse(broadcastCurve, 0xFFD700); // Yellow color
+        createPulse(broadcastCurve, 0xFFD700);
     }
 
     function animatePulses() {
@@ -192,17 +205,18 @@ function createGlobe(container) {
             } else {
                 pulse.mesh.position.copy(pulse.curve.getPoint(pulse.progress));
                 const tangent = pulse.curve.getTangent(pulse.progress).normalize();
-                pulse.quaternion.setFromUnitVectors(cylinderUp, tangent);
-                pulse.mesh.quaternion.copy(pulse.quaternion);
+                if (!tangent.equals(new THREE.Vector3(0,0,0))) { // Robustness check for zero tangent
+                    const quaternion = new THREE.Quaternion();
+                    quaternion.setFromUnitVectors(cylinderUp, tangent);
+                    pulse.mesh.quaternion.copy(quaternion);
+                }
             }
         }
     }
 
-    // --- FEATURE: Server Glow Effect ---
     function triggerServerGlow() {
         if (!serverGlow) return;
-        const glowMaterial = serverGlow.material;
-        new TWEEN.Tween(glowMaterial)
+        new TWEEN.Tween(serverGlow.material)
             .to({ opacity: 0.7 }, 300)
             .easing(TWEEN.Easing.Quadratic.Out)
             .yoyo(true)
@@ -227,7 +241,7 @@ function createGlobe(container) {
         composer.setSize(container.clientWidth, container.clientHeight);
     }
 
-    // --- FEATURE: Tooltip Logic ---
+    // --- NEW: Tooltip Logic ---
     function onMouseMove(event) {
         const rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -242,10 +256,10 @@ function createGlobe(container) {
             if (currentlyHovered !== intersected) {
                 currentlyHovered = intersected;
                 const data = intersected.userData;
-                let content = `<strong>${data.type === 'server' ? 'Server' : 'Client'} #${data.id}</strong>`;
+                let content = `<strong style="color: ${data.type === 'server' ? '#AB74FF' : '#2ECC71'};">${data.type === 'server' ? 'Server' : 'Client'} #${data.id}</strong>`;
                 content += `<div>Location: ${data.location.name}</div>`;
                 if (data.tokenomics) {
-                    content += `<div>Balance: ${data.tokenomics.balance.toFixed(2)} PHOENIX</div>`;
+                    content += `<div style="margin-top: 5px;">Balance: ${data.tokenomics.balance.toFixed(2)} PHOENIX</div>`;
                     content += `<div>Stake: ${data.tokenomics.stake.toFixed(2)} PHOENIX</div>`;
                 }
                 tooltipElement.innerHTML = content;
@@ -277,8 +291,13 @@ function createGlobe(container) {
                     clientPoints.set(client.id, point);
                 }
                 point.visible = true;
-                // Update userData with the latest info for the tooltip
-                point.userData = { type: 'client', id: client.id, location: client.location, tokenomics: tokenomicsData[client.id] };
+                // --- MODIFIED: Attach data to the mesh for the tooltip ---
+                point.userData = { 
+                    type: 'client', 
+                    id: client.id, 
+                    location: client.location, 
+                    tokenomics: tokenomicsData[client.id] 
+                };
             }
         });
         clientPoints.forEach((point, id) => { if (!connectedClientIds.includes(id)) point.visible = false; });
@@ -292,11 +311,14 @@ function createGlobe(container) {
             const material = new THREE.MeshBasicMaterial({ color: 0x8A3FFC });
             serverPoint = new THREE.Mesh(geometry, material);
             serverPoint.position.copy(pos);
-            // Add user data for tooltip
-            serverPoint.userData = { type: 'server', id: serverLocation.name, location: serverLocation };
+            // --- MODIFIED: Attach data to the mesh for the tooltip ---
+            serverPoint.userData = { 
+                type: 'server', 
+                id: serverLocation.name, 
+                location: serverLocation 
+            };
             earthMesh.add(serverPoint);
 
-            // Create the associated glow mesh, initially invisible
             const glowGeom = new THREE.SphereGeometry(SERVER_POINT_RADIUS * 2.5, 32, 32);
             const glowMat = new THREE.MeshBasicMaterial({ color: 0x8A3FFC, transparent: true, opacity: 0 });
             serverGlow = new THREE.Mesh(glowGeom, glowMat);
@@ -322,8 +344,6 @@ function createGlobe(container) {
     return {
         updateClientPoints, updateServerPoint, addOrUpdateArc, removeInactiveArcs,
         clearAllArcs, triggerPulse, flyTo, toggleClouds, toggleRotation,
-        // --- NEW PUBLIC METHODS ---
-        triggerServerGlow,
-        triggerBroadcastPulse
+        triggerServerGlow, triggerBroadcastPulse
     };
 }
