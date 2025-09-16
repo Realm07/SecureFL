@@ -80,7 +80,7 @@ class FederationTask:
         self.global_model = get_model(self.config)
         self.test_loader = torch.utils.data.DataLoader(self.testset, batch_size=512)
         self.model_version = 0
-
+        self.config['clients_per_round'] = 3
         self.server_adam_m = {name: torch.zeros_like(p) for name, p in self.global_model.named_parameters()}
         self.server_adam_v = {name: torch.zeros_like(p) for name, p in self.global_model.named_parameters()}
         self.server_adam_step = 0
@@ -126,12 +126,15 @@ class FederationTask:
         task_log(self.task_id, f"--- Round {round_num}/{self.config['num_rounds']} ---")
 
         eligible_clients = [cid for cid in manager_instance.connected_clients if manager_instance.token_manager.has_sufficient_stake(cid, manager_instance.MINIMUM_STAKE)]
-        if len(eligible_clients) < self.config['clients_per_round']:
+        required_clients = 3  # enforce regardless of config
+        if len(eligible_clients) < required_clients:
             task_log(self.task_id, "Not enough eligible clients. Waiting...")
             self.status = TaskStatus.WAITING_FOR_CLIENTS
-            self.current_round -= 1; await asyncio.sleep(10); return
-        
-        selected_clients = random.sample(eligible_clients, self.config['clients_per_round'])
+            self.current_round -= 1
+            await asyncio.sleep(10)
+            return
+
+        selected_clients = random.sample(eligible_clients, required_clients)
         task_log(self.task_id, f"Selected clients for round: {selected_clients}")
         
         self.updates_for_round[round_num] = []

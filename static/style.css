@@ -30,9 +30,12 @@ body { margin: 0; font-family: var(--font-family); background-color: var(--bg-ma
 
 /* --- Components --- */
 .card { background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; display: flex; flex-direction: column; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); }
-.card-header, .sub-header { font-size: 16px; font-weight: 500; color: var(--text-primary); margin: 0 0 15px 0; }
+.card-header { font-size: 16px; font-weight: 500; color: var(--text-primary); margin: 0 0 15px 0; display: flex; justify-content: space-between; align-items: center; }
 .card-content p { margin: 0 0 12px 0; color: var(--text-secondary); display: flex; justify-content: space-between; }
+.card-content p:last-child { margin-bottom: 0; }
 .card-content p strong, .card-content p span { color: var(--text-primary); font-weight: 500; }
+.header-refresh-btn { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px; padding: 5px; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; transition: color 0.2s, background-color 0.2s; }
+.header-refresh-btn:hover { color: var(--text-primary); background-color: var(--bg-main); }
 
 /* --- Sidebar --- */
 .sidebar-header { color: var(--text-primary); font-size: 18px; font-weight: 600; margin-bottom: 30px; padding: 10px; height: 60px; display: flex; align-items: center; justify-content: space-between; }

@@ -59,7 +59,6 @@
                             <div id="task-details-content" class="card-content">
                                 <p><strong>Model:</strong> <span id="task-model-name">--</span></p>
                                 <p><strong>Privacy:</strong> <span id="task-privacy-profile">--</span></p>
-                                <p><strong>Status:</strong> <span id="task-status">--</span></p>
                                 <p><strong>Progress:</strong> <span id="task-progress">--</span></p>
                             </div>
                         </div>
@@ -101,7 +100,12 @@
                             </div>
                         </div>
                         <div class="card economics-card">
-                            <h2 class="card-header">Aggregation & Economics</h2>
+                            <h2 class="card-header">
+                                <span>Aggregation & Economics</span>
+                                <button id="tokenomics-refresh-btn" class="header-refresh-btn" title="Refresh Tokenomics">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </h2>
                             <div class="card-content" style="flex-grow: 1; display: flex; flex-direction: column;">
                                 <div class="metric-grid">
                                     <div><strong>Connected Clients:</strong> <span id="connected-clients-count">0</span></div>

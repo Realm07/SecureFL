@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const taskOptionsList = document.getElementById('task-options-list');
     const economicsTabs = document.querySelectorAll('.tab');
     const economicsTabContents = document.querySelectorAll('.tab-content');
+    const tokenomicsRefreshBtn = document.getElementById('tokenomics-refresh-btn');
     const taskBuilderForm = document.getElementById('task-builder-form');
     const marketplaceGrid = document.getElementById('marketplace-grid');
     const rotationToggle = document.getElementById('toggle-rotation');
@@ -59,9 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
             updateGlobePointsAndArcs();
         }
-        if (JSON.stringify(prev.tokenomics) !== JSON.stringify(state.tokenomics)) {
-            updateNetworkEconomics();
-        }
+        // Note: Tokenomics is now updated manually via its own function
     }
     
     function updateGlobePointsAndArcs() {
@@ -110,7 +109,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const task = state.tasks[state.selectedTaskId];
         document.getElementById('task-model-name').textContent = task.model_name || '--';
         document.getElementById('task-privacy-profile').textContent = (task.privacy_profile || '--').toUpperCase().replace('_', ' + ');
-        document.getElementById('task-status').textContent = task.status || '--';
         document.getElementById('task-progress').textContent = `${task.current_round || 0} / ${task.total_rounds || 0} ${task.learning_mode === 'asynchronous' ? 'Aggs' : 'Rounds'}`;
     }
     
@@ -140,13 +138,14 @@ document.addEventListener('DOMContentLoaded', () => {
         let totalStake = 0;
         if (state.tokenomics) {
             Object.entries(state.tokenomics).forEach(([clientId, account]) => {
-                // --- FIX: Use the 'total_stake' calculated by the backend ---
                 const clientTotalStake = account.total_stake || 0;
                 globalLeaderboardBody.insertRow().innerHTML = `<td>${clientId}</td><td>${clientTotalStake.toFixed(2)}</td><td>${account.balance.toFixed(2)}</td>`;
                 totalStake += clientTotalStake;
             });
         }
         document.getElementById('total-stake').textContent = `${totalStake.toFixed(2)} PHOENIX`;
+        // Also update globe points as tokenomics data affects tooltips
+        updateGlobePointsAndArcs();
     }
 
     function generateLiveLogsAndPulses(prevState, currentState) {
@@ -181,7 +180,6 @@ document.addEventListener('DOMContentLoaded', () => {
         prevClients.filter(id => !currentClients.includes(id)).forEach(id => logEvent(`Client #${id} disconnected.`, 'warn'));
     }
 
-    // --- MARKETPLACE UI UPDATE (NOW WITH INTERACTIVE STAKING) ---
     function updateMarketplace() {
         marketplaceGrid.innerHTML = '';
         if (!state.tasks || Object.keys(state.tasks).length === 0) {
@@ -218,16 +216,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- DATA FETCHING ---
-    async function fetchData() {
+    async function fetchStatusData() {
         try {
-            const [statusResponse, tokenomicsResponse] = await Promise.all([fetch('/status'), fetch('/tokenomics')]);
-            if (!statusResponse.ok || !tokenomicsResponse.ok) throw new Error('Network response was not ok');
+            const statusResponse = await fetch('/status');
+            if (!statusResponse.ok) throw new Error('Network response was not ok');
             const statusData = await statusResponse.json();
-            const tokenomicsData = await tokenomicsResponse.json();
-            state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network, tokenomics: state.tokenomics }));
+            
+            state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network }));
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
-            state.tokenomics = tokenomicsData;
+            
             render();
             connectionStatusDot.className = 'status-dot connected';
             connectionStatusText.textContent = 'Connected';
@@ -235,6 +233,20 @@ document.addEventListener('DOMContentLoaded', () => {
             connectionStatusDot.className = 'status-dot disconnected';
             connectionStatusText.textContent = 'Disconnected';
             console.error("Fetch error:", error);
+        }
+    }
+
+    async function fetchTokenomicsData() {
+        logEvent('Refreshing tokenomics data...');
+        try {
+            const tokenomicsResponse = await fetch('/tokenomics');
+            if (!tokenomicsResponse.ok) throw new Error('Tokenomics fetch failed');
+            const tokenomicsData = await tokenomicsResponse.json();
+            state.tokenomics = tokenomicsData;
+            updateNetworkEconomics();
+            logEvent('Tokenomics updated successfully.', 'success');
+        } catch (error) {
+            logEvent(`Failed to refresh tokenomics: ${error.message}`, 'error');
         }
     }
     
@@ -250,6 +262,8 @@ document.addEventListener('DOMContentLoaded', () => {
             icon.classList.add('fa-angle-double-left');
         }
     });
+
+    tokenomicsRefreshBtn.addEventListener('click', fetchTokenomicsData);
 
     selectedTaskDisplay.addEventListener('click', () => taskSelectContainer.classList.toggle('open'));
     taskOptionsList.addEventListener('click', (e) => {
@@ -302,7 +316,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- NEW: STAKING EVENT LISTENER (USING EVENT DELEGATION) ---
     marketplaceGrid.addEventListener('click', async (e) => {
         if (!e.target.matches('.stake-button')) return;
 
@@ -317,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const clientIdStr = prompt("Enter your Client ID (0-9) to stake tokens:", "0");
-        if (clientIdStr === null) return; // User cancelled
+        if (clientIdStr === null) return;
         const clientId = parseInt(clientIdStr);
         if (isNaN(clientId)) {
             logEvent('Invalid Client ID.', 'error');
@@ -338,15 +351,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) { throw new Error(result.error || 'Staking failed'); }
             
             logEvent(`Client #${clientId} successfully staked ${amount} PHOENIX!`, 'success');
-            input.value = ''; // Clear input on success
-            fetchData(); // Immediately refresh data to show new balances
+            input.value = '';
+            fetchTokenomicsData();
         } catch (error) {
             logEvent(`Staking failed for Client #${clientId}: ${error.message}`, 'error');
         } finally {
             button.disabled = false;
             button.textContent = 'Contribute Stake';
         }
-
     });
 
     // --- INITIALIZATION ---
@@ -358,11 +370,19 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeAccuracyChart();
         const globeContainer = document.getElementById('globe-container');
         if (globeContainer) state.globe = createGlobe(globeContainer);
-        if (document.visibilityState === 'visible') startPolling();
+        if (document.visibilityState === 'visible') {
+            startPolling();
+            fetchTokenomicsData(); // Initial fetch for tokenomics
+        }
     }
 
     let fetchDataInterval;
-    function startPolling() { if (fetchDataInterval) clearInterval(fetchDataInterval); fetchData(); fetchDataInterval = setInterval(fetchData, 2000); }
+    function startPolling() { 
+        if (fetchDataInterval) clearInterval(fetchDataInterval); 
+        fetchStatusData(); 
+        // --- FIX: Increased polling interval and removed tokenomics from the loop ---
+        fetchDataInterval = setInterval(fetchStatusData, 5000); 
+    }
     function stopPolling() { clearInterval(fetchDataInterval); }
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? startPolling() : stopPolling());
     
