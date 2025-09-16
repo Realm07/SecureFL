@@ -47,17 +47,21 @@ document.addEventListener('DOMContentLoaded', () => {
     function render() {
         const prev = state._prevState;
         
+        // --- FIX: Re-ordered the update logic to prevent race conditions ---
+        // 1. Update the globe's visual state (points, arcs) first.
+        if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
+            updateGlobePointsAndArcs();
+        }
+        
+        // 2. Then, process task changes which might trigger animations on those visuals.
         if (JSON.stringify(prev.tasks) !== JSON.stringify(state.tasks)) {
             updateTaskSelector();
             updateTaskDetails();
             updateAccuracyChart();
             updateLiveAccuracy();
-            updateGlobeArcs();
+            updateGlobeArcs(); // Still call here in case task selection changes arcs
             updateMarketplace();
             generateLiveLogsAndPulses(prev, state);
-        }
-        if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
-            updateGlobePointsAndArcs();
         }
     }
     
