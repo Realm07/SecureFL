@@ -1,4 +1,3 @@
-
 document.addEventListener('DOMContentLoaded', () => {
     // --- STATE MANAGEMENT ---
     let state = {
@@ -24,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const marketplaceGrid = document.getElementById('marketplace-grid');
     const rotationToggle = document.getElementById('toggle-rotation');
     const cloudsToggle = document.getElementById('toggle-clouds');
+    const ledgerContentWrapper = document.getElementById('ledger-content-wrapper');
+
 
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
@@ -55,17 +56,24 @@ document.addEventListener('DOMContentLoaded', () => {
             updateLiveAccuracy();
             updateGlobeArcs();
             updateMarketplace();
+            if (document.getElementById('ledger-view').classList.contains('active-view')) {
+                fetchAndRenderLedger();
+            }
             generateLiveLogsAndPulses(prev, state);
         }
         if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
             updateGlobePointsAndArcs();
         }
-        // Note: Tokenomics is now updated manually via its own function
+        // --- FIX: Tokenomics is now updated reliably before render ---
+        if (JSON.stringify(prev.tokenomics) !== JSON.stringify(state.tokenomics)) {
+            updateNetworkEconomics();
+        }
     }
     
     function updateGlobePointsAndArcs() {
         if (!state.globe) return;
         const connectedClients = state.network.connected_clients || [];
+        // Pass tokenomics data to the globe for tooltips
         state.globe.updateClientPoints(connectedClients, state.tokenomics);
         updateGlobeArcs();
     }
@@ -148,32 +156,52 @@ document.addEventListener('DOMContentLoaded', () => {
         updateGlobePointsAndArcs();
     }
 
+    // --- ROBUST: Logic from older script to ensure animations always fire ---
     function generateLiveLogsAndPulses(prevState, currentState) {
-        if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) return;
+        if (!prevState.tasks || Object.keys(prevState.tasks).length === 0 || !state.globe) return;
+    
         for (const taskId in currentState.tasks) {
             const prevTask = prevState.tasks[taskId] || { current_round: 0, status: '', metric_history: [], selected_clients: [] };
             const currentTask = currentState.tasks[taskId];
+    
+            // Check for round completion to trigger animations
             if (currentTask.current_round > prevTask.current_round) {
                 const metricName = currentTask.metric.toUpperCase();
                 const latestMetric = currentTask.metric_history[currentTask.metric_history.length - 1];
                 logEvent(`Task '${taskId}' round ${currentTask.current_round} complete. ${metricName}: ${latestMetric.toFixed(2)}`);
-                if (state.globe && taskId === state.selectedTaskId) {
-                    state.globe.triggerServerGlow();
-                    const participatingClients = currentTask.selected_clients || [];
+    
+                // Trigger animations regardless of which task is selected
+                state.globe.triggerServerGlow(currentTask.server_location); 
+                const participatingClients = currentTask.selected_clients || [];
+                if (Array.isArray(participatingClients)) {
                     participatingClients.forEach((clientId, index) => {
-                        setTimeout(() => { state.globe.triggerBroadcastPulse(clientId); }, index * 100); 
+                        setTimeout(() => { 
+                            const client = (currentState.network.connected_clients || []).find(c => c.id === clientId);
+                            if (client && client.location && currentTask.server_location) {
+                                state.globe.triggerBroadcastPulse(client.location, currentTask.server_location); 
+                            }
+                        }, index * 100); 
                     });
                 }
             }
-            if (currentTask.status !== prevTask.status) { logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`); }
-            if (state.selectedTaskId === taskId && state.globe) {
-                const newlyReadyClients = (currentTask.selected_clients || []).filter(id => !(prevTask.selected_clients || []).includes(id));
-                newlyReadyClients.forEach(clientId => {
-                    logEvent(`Client #${clientId} finished training for task '${taskId}'.`, 'success');
-                    state.globe.triggerPulse(clientId);
-                });
+    
+            // Log status changes
+            if (currentTask.status !== prevTask.status) { 
+                logEvent(`Task '${taskId}' status changed to: ${currentTask.status}`); 
             }
+    
+            // Trigger pulses for newly ready clients (for synchronous tasks)
+            const newlyReadyClients = (currentTask.selected_clients || []).filter(id => !(prevTask.selected_clients || []).includes(id));
+            newlyReadyClients.forEach(clientId => {
+                logEvent(`Client #${clientId} finished training for task '${taskId}'.`, 'success');
+                const client = (currentState.network.connected_clients || []).find(c => c.id === clientId);
+                if (client && client.location) {
+                    state.globe.triggerPulse(client.location);
+                }
+            });
         }
+    
+        // Log client connections/disconnections
         const prevClients = (prevState.network.connected_clients || []).map(c => c.id);
         const currentClients = (currentState.network.connected_clients || []).map(c => c.id);
         currentClients.filter(id => !prevClients.includes(id)).forEach(id => logEvent(`Client #${id} connected.`));
@@ -215,18 +243,21 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- DATA FETCHING ---
-    async function fetchStatusData() {
+    // --- ROBUST: Combined data fetching from older script ---
+    async function fetchData() {
         try {
-            const statusResponse = await fetch('/status');
-            if (!statusResponse.ok) throw new Error('Network response was not ok');
+            const [statusResponse, tokenomicsResponse] = await Promise.all([fetch('/status'), fetch('/tokenomics')]);
+            if (!statusResponse.ok || !tokenomicsResponse.ok) throw new Error('Network response was not ok');
             const statusData = await statusResponse.json();
+            const tokenomicsData = await tokenomicsResponse.json();
             
-            state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network }));
+            state._prevState = JSON.parse(JSON.stringify({ tasks: state.tasks, network: state.network, tokenomics: state.tokenomics }));
             state.tasks = statusData.tasks;
             state.network = statusData.network_info;
+            state.tokenomics = tokenomicsData;
             
             render();
+            
             connectionStatusDot.className = 'status-dot connected';
             connectionStatusText.textContent = 'Connected';
         } catch (error) {
@@ -236,17 +267,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function fetchTokenomicsData() {
-        logEvent('Refreshing tokenomics data...');
+    async function fetchAndRenderLedger() {
+        if (!state.selectedTaskId) {
+            ledgerContentWrapper.innerHTML = '<p>Select a task from the Monitor view to see its ledger.</p>';
+            return;
+        }
+        logEvent(`Fetching ledger for task '${state.selectedTaskId}'...`);
         try {
-            const tokenomicsResponse = await fetch('/tokenomics');
-            if (!tokenomicsResponse.ok) throw new Error('Tokenomics fetch failed');
-            const tokenomicsData = await tokenomicsResponse.json();
-            state.tokenomics = tokenomicsData;
-            updateNetworkEconomics();
-            logEvent('Tokenomics updated successfully.', 'success');
+            const response = await fetch(`/tasks/${state.selectedTaskId}/ledger`);
+            if (!response.ok) throw new Error('Failed to fetch ledger');
+            const ledgerChain = await response.json();
+            
+            let ledgerHTML = '<div class="ledger-grid">';
+            if (!ledgerChain || ledgerChain.length === 0) {
+                 ledgerHTML += '<p>No ledger entries found for this task yet.</p>';
+            } else {
+                [...ledgerChain].reverse().forEach(block => {
+                    const timestamp = new Date(block.timestamp * 1000).toLocaleString();
+                    const roundData = block.round_data;
+                    const isGenesis = roundData.message === 'Genesis Block';
+                    
+                    ledgerHTML += `
+                        <div class="ledger-block-card">
+                            <div class="ledger-block-header">
+                                <span class="block-index">Block #${block.index}</span>
+                                <span class="block-timestamp">${timestamp}</span>
+                            </div>
+                            <div class="ledger-block-body">
+                                ${isGenesis ? `<p><strong>Message:</strong><span>${roundData.message}</span></p>` : `
+                                <p><strong>Round:</strong><span>${roundData.round_number}</span></p>
+                                <p><strong>Participants:</strong><span>[${roundData.participants.join(', ')}]</span></p>
+                                <p><strong>Metric (${state.tasks[state.selectedTaskId]?.metric.toUpperCase() || ''}):</strong><span>${roundData.global_model_accuracy?.toFixed(4) || 'N/A'}</span></p>
+                                <p><strong>Model Hash:</strong><span class="hash-value">${roundData.global_model_hash}</span></p>
+                                `}
+                                <p><strong>Prev. Hash:</strong><span class="hash-value">${block.previous_hash}</span></p>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            ledgerHTML += '</div>';
+            ledgerContentWrapper.innerHTML = ledgerHTML;
+
         } catch (error) {
-            logEvent(`Failed to refresh tokenomics: ${error.message}`, 'error');
+            logEvent(`Error fetching ledger: ${error.message}`, 'error');
+            ledgerContentWrapper.innerHTML = `<p>Could not load ledger for ${state.selectedTaskId}.</p>`;
         }
     }
     
@@ -263,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    tokenomicsRefreshBtn.addEventListener('click', fetchTokenomicsData);
+    tokenomicsRefreshBtn.addEventListener('click', fetchData); // Refresh all data for consistency
 
     selectedTaskDisplay.addEventListener('click', () => taskSelectContainer.classList.toggle('open'));
     taskOptionsList.addEventListener('click', (e) => {
@@ -276,6 +341,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (state.globe && newTask && newTask.server_location) { state.globe.flyTo(newTask.server_location); }
             if (state.globe) { state.globe.clearAllArcs(); updateGlobeArcs(); }
             updateTaskSelector(); updateTaskDetails(); updateAccuracyChart(); updateLiveAccuracy();
+            if (document.getElementById('ledger-view').classList.contains('active-view')) {
+                fetchAndRenderLedger();
+            }
         }
         taskSelectContainer.classList.remove('open');
     });
@@ -298,6 +366,10 @@ document.addEventListener('DOMContentLoaded', () => {
         link.classList.add('active');
         mainContent.querySelector('.view-container.active-view').classList.remove('active-view');
         document.getElementById(link.dataset.view).classList.add('active-view');
+
+        if (link.dataset.view === 'ledger-view') {
+            fetchAndRenderLedger();
+        }
     });
     taskBuilderForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -352,7 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             logEvent(`Client #${clientId} successfully staked ${amount} PHOENIX!`, 'success');
             input.value = '';
-            fetchTokenomicsData();
+            fetchData(); // Re-fetch all data to update tokenomics and UI
         } catch (error) {
             logEvent(`Staking failed for Client #${clientId}: ${error.message}`, 'error');
         } finally {
@@ -372,16 +444,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (globeContainer) state.globe = createGlobe(globeContainer);
         if (document.visibilityState === 'visible') {
             startPolling();
-            fetchTokenomicsData(); // Initial fetch for tokenomics
         }
     }
 
     let fetchDataInterval;
     function startPolling() { 
         if (fetchDataInterval) clearInterval(fetchDataInterval); 
-        fetchStatusData(); 
-        // --- FIX: Increased polling interval and removed tokenomics from the loop ---
-        fetchDataInterval = setInterval(fetchStatusData, 5000); 
+        fetchData(); 
+        fetchDataInterval = setInterval(fetchData, 3000); // Set a reasonable interval
     }
     function stopPolling() { clearInterval(fetchDataInterval); }
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? startPolling() : stopPolling());

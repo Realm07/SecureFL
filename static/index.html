@@ -35,8 +35,8 @@
                 <a href="#" class="active" data-view="monitor-view"><i class="fas fa-network-wired"></i><span>Live Network Monitor</span></a>
                 <a href="#" data-view="marketplace-view"><i class="fas fa-store"></i><span>Model Marketplace</span></a>
                 <a href="#" data-view="builder-view"><i class="fas fa-hammer"></i><span>Federation Builder</span></a>
-                <a href="#"><i class="fas fa-book-open"></i><span>Federation LedGO</span></a>
-                <a href="#"><i class="fas fa-lightbulb"></i><span>Platform Concepts</span></a>
+                <a href="#" data-view="ledger-view"><i class="fas fa-book-open"></i><span>Federation Ledger</span></a>
+                <a href="#" data-view="concepts-view"><i class="fas fa-lightbulb"></i><span>Platform Concepts</span></a>
             </nav>
         </aside>
 
@@ -145,7 +145,7 @@
                 </div>
             </div>
 
-            <!-- VIEW 3: Governance Builder -->
+            <!-- VIEW 3: Federation Builder -->
             <div id="builder-view" class="view-container">
                 <h1 class="view-header">Federation Builder</h1>
                 <div class="builder-form-wrapper">
@@ -207,6 +207,53 @@
                     </form>
                 </div>
             </div>
+
+            <!-- VIEW 4: Federation Ledger -->
+            <div id="ledger-view" class="view-container">
+                <h1 class="view-header">Federation Ledger</h1>
+                <div id="ledger-content-wrapper" class="ledger-content-wrapper">
+                    <!-- JS will populate this -->
+                    <p>Select a task from the Monitor view to see its ledger.</p>
+                </div>
+            </div>
+
+            <!-- VIEW 5: Platform Concepts -->
+            <div id="concepts-view" class="view-container">
+                <h1 class="view-header">Platform Concepts</h1>
+                <div class="concepts-grid">
+                    <div class="card concept-card">
+                        <h2 class="card-header">Federated Learning (FL)</h2>
+                        <div class="card-content">
+                            <p>Instead of moving sensitive data to a central server, FL trains a shared model by sending the model to the data. Clients train the model on their local data, and only the resulting model updates (not the data itself) are sent back to the server for aggregation. This is the core principle of AegisMesh.</p>
+                        </div>
+                    </div>
+                    <div class="card concept-card">
+                        <h2 class="card-header">Homomorphic Encryption (HE)</h2>
+                        <div class="card-content">
+                            <p>HE is a cryptographic technique that allows computations to be performed directly on encrypted data. In AegisMesh, clients encrypt their model updates before sending them. The server can aggregate these encrypted updates without ever decrypting them, ensuring that the central server cannot inspect individual contributions.</p>
+                        </div>
+                    </div>
+                    <div class="card concept-card">
+                        <h2 class="card-header">Differential Privacy (DP)</h2>
+                        <div class="card-content">
+                            <p>DP provides a mathematical guarantee that the output of an algorithm is nearly identical whether or not any single individual's data is included. We achieve this by adding carefully calibrated statistical noise to the model updates before encryption, making it impossible to reverse-engineer information about a specific client's dataset from the final model.</p>
+                        </div>
+                    </div>
+                    <div class="card concept-card">
+                        <h2 class="card-header">Tokenomics & Staking</h2>
+                        <div class="card-content">
+                            <p>To incentivize participation and secure the network, AegisMesh uses a token system. Clients must <strong>stake</strong> tokens to join a federation task, acting as a security deposit. Honest participants who contribute valid updates are <strong>rewarded</strong> with tokens. This creates a self-sustaining ecosystem that encourages good behavior.</p>
+                        </div>
+                    </div>
+                    <div class="card concept-card">
+                        <h2 class="card-header">Federation Ledger</h2>
+                        <div class="card-content">
+                            <p>Every aggregation round is recorded as a block on a simple, tamper-evident blockchain. Each block contains the hash of the aggregated model, the list of participants, and the resulting performance metric. This creates a permanent and verifiable audit trail for each federation task, ensuring transparency and accountability.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 
