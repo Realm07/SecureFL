@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 SESSION_NAME="fl-session"
-SERVER_CMD="uvicorn src.server:app --reload --ws-ping-interval 60 --ws-ping-timeout 60"
+SERVER_CMD="uvicorn src.server:app --reload"
 CLIENT_CMD_BASE="python -m src.client --id"
 NUM_CLIENTS=5
 

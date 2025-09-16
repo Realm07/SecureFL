@@ -452,7 +452,7 @@ class ServerManager:
         self.data_manager = DataManager(['arrhythmia', 'nasa_battery'], get_config)
         self.tasks: Dict[str, FederationTask] = {
             "arrhythmia": FederationTask("arrhythmia", "she_dp", self.data_manager),
-#            "nasa_battery": FederationTask("nasa_battery", "she", self.data_manager)
+            "nasa_battery": FederationTask("nasa_battery", "she", self.data_manager)
         }
         token_file = os.path.join(get_config('arrhythmia')['results_dir'], 'token_balances.json')
         self.token_manager = TokenManager(storage_path=token_file)
