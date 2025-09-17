@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from sklearn.preprocessing import MinMaxScaler
 import glob
-from PyEMD import CEEMDAN # Import the denoising algorithm
+from PyEMD import CEEMDAN
 
 def denoise_capacity_with_ceemdan(capacities):
     """
@@ -16,7 +16,6 @@ def denoise_capacity_with_ceemdan(capacities):
     """
     ceemdan = CEEMDAN()
     imfs = ceemdan(capacities)
-    # The last IMF is the residual trend. This is our denoised signal.
     return imfs[-1]
 
 class NASABatteryDataset(Dataset):
@@ -30,7 +29,6 @@ class NASABatteryDataset(Dataset):
         self.labels = []
 
         for file_path in battery_files:
-            # First, extract just the raw capacity data
             mat = scipy.io.loadmat(file_path)
             data_key = [k for k in mat.keys() if not k.startswith('__')][0]
             all_cycles = mat[data_key][0, 0]['cycle'][0]
@@ -46,13 +44,10 @@ class NASABatteryDataset(Dataset):
             if len(raw_capacities) < sequence_length + 1:
                 continue
 
-            # Denoise the entire capacity curve for this battery
             denoised_capacity_trend = denoise_capacity_with_ceemdan(np.array(raw_capacities))
             
-            # Scale the denoised data
             scaled_trend = scaler.transform(denoised_capacity_trend.reshape(-1, 1))
 
-            # Create sequences for time-series forecasting
             for i in range(len(scaled_trend) - sequence_length):
                 self.features.append(scaled_trend[i : i + sequence_length])
                 self.labels.append(scaled_trend[i + sequence_length])
@@ -65,8 +60,6 @@ class NASABatteryDataset(Dataset):
         return len(self.features)
 
     def __getitem__(self, idx):
-        # Feature shape: (sequence_length, 1)
-        # Label shape: (1,)
         return (torch.tensor(self.features[idx], dtype=torch.float32), 
                 torch.tensor(self.labels[idx], dtype=torch.float32).view(1))
 
@@ -75,7 +68,6 @@ def get_nasa_datasets(config):
     data_path = os.path.join(config['data_root'], '5. Battery Data Set', nasa_data_folder)
     all_battery_files = sorted(glob.glob(os.path.join(data_path, '*.mat')))
     
-    # Fit scaler on raw capacity data from ALL batteries
     print("INFO (NASA): Fitting global scaler on raw capacity from all batteries...")
     all_capacities = []
     for file_path in all_battery_files:
@@ -91,8 +83,7 @@ def get_nasa_datasets(config):
 
     scaler = MinMaxScaler().fit(np.array(all_capacities).reshape(-1, 1))
     
-    # Partition data
-    test_battery_files = [all_battery_files[2]] # B0007.mat
+    test_battery_files = [all_battery_files[2]]
     train_battery_files = [f for f in all_battery_files if f not in test_battery_files]
     
     print(f"INFO (NASA): Using {os.path.basename(test_battery_files[0])} for the test set.")

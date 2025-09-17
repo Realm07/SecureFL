@@ -68,7 +68,6 @@ class FederationTask:
         else:
             self.config = data_manager.get_task_config(task_id)
 
-        # --- REQUIREMENT FULFILLED: Force the number of clients per round to be 3 ---
         self.config['clients_per_round'] = 3
 
         self.learning_mode = self.config.get('learning_mode', 'synchronous')
@@ -90,20 +89,17 @@ class FederationTask:
         
         self.current_round = 0
         
-        # --- MERGED: State management from the older, more robust script ---
         self.updates_for_round: Dict[int, List] = {}
         self.clients_ready_for_round: Dict[int, List] = {}
         self.update_received_event_for_round: Dict[int, asyncio.Event] = {}
         self.chunk_buffers: Dict[str, List] = {}
         self.update_buffer = deque()
-        # --- END MERGE ---
 
         self.metric_history = []
         self.setup_logging()
         ledger_file = os.path.join(self.config['results_dir'], f'ledger_{self.task_id}.json')
         self.ledger = FederationLedger(storage_path=ledger_file)
         
-        # --- RETAINED: State management for the new controller acknowledgment feature ---
         self.clients_acknowledged_round: Dict[int, set] = {}
         self.last_round_participants: List[int] = []
 
@@ -123,15 +119,12 @@ class FederationTask:
     def is_complete(self):
         return self.current_round >= self.config['num_rounds']
     
-    # --- MERGED: Using the more complex and correct synchronous logic from Script 2 ---
     async def execute_synchronous_round(self, manager_instance):
         self.status = TaskStatus.RUNNING_ROUND
         self.current_round += 1
         round_num = self.current_round
         
-        # --- FIX: Clear the participants list at the start of every round attempt ---
         self.last_round_participants = []
-        # --------------------------------------------------------------------------
 
         task_log(self.task_id, f"--- Round {round_num}/{self.config['num_rounds']} ---")
 
@@ -139,12 +132,12 @@ class FederationTask:
         if len(eligible_clients) < self.config['clients_per_round']:
             task_log(self.task_id, "Not enough eligible clients. Waiting...")
             self.status = TaskStatus.WAITING_FOR_CLIENTS
-            self.current_round -= 1 # Roll back the round number
+            self.current_round -= 1 
             await asyncio.sleep(10)
             return
         
         selected_clients = random.sample(eligible_clients, self.config['clients_per_round'])
-        self.last_round_participants = selected_clients # Now, set it with the new participants
+        self.last_round_participants = selected_clients 
         self.clients_acknowledged_round[round_num] = set()
         task_log(self.task_id, f"Selected clients for round: {selected_clients}")
         
@@ -161,13 +154,11 @@ class FederationTask:
                 await client_conn.send_text(json.dumps(message))
 
         try:
-            # Phase 1: Wait for clients to signal they have finished local training
             timeout = 300.0 if self.current_round == 1 else 120.0
             await asyncio.wait_for(self._wait_for_clients_ready(round_num, len(selected_clients)), timeout=timeout)
         except asyncio.TimeoutError:
             task_log(self.task_id, f"Round {round_num} timed out waiting for clients to report completion.")
 
-        # Phase 2: Request updates one by one from clients that are ready
         ready_clients = self.clients_ready_for_round.get(round_num, [])
         for client_id in ready_clients:
             client_conn = manager_instance.connected_clients.get(client_id)
@@ -188,12 +179,10 @@ class FederationTask:
                         session = manager_instance.controller_manager.get_session(client_id)
                         if session and session.current_step != "rewarded":
                             session.current_step = "rewarded"
-                            # is_locked will be set to False by the 'ready_for_next_round' action
                             print(f"CONTROLLER: Set state to 'rewarded' for client #{client_id}.")
         else:
             task_log(self.task_id, f"No valid updates received for round {round_num}. Skipping model update.")
             
-        # Cleanup for the round
         for state_dict in [self.clients_ready_for_round, self.update_received_event_for_round, self.updates_for_round]:
             if round_num in state_dict: del state_dict[round_num]
         
@@ -216,7 +205,6 @@ class FederationTask:
             traceback.print_exc()
             return False
         
-    # --- MERGED: Using the "aggregate all" async logic from Script 2 ---
     async def execute_asynchronous_aggregation(self, manager_instance):
         min_updates = self.config.get('min_updates_for_aggregation', 1)
         if len(self.update_buffer) < min_updates:
@@ -229,7 +217,6 @@ class FederationTask:
         updates_to_process = list(self.update_buffer)
         self.update_buffer.clear()
         
-        # Ensure we only use the latest update from each client
         latest_updates = {client_id: update_data for client_id, update_data, _ in updates_to_process}
          
         participating_clients, final_updates = list(latest_updates.keys()), list(latest_updates.values())
@@ -294,21 +281,18 @@ class FederationTask:
         self.csv_file.flush()
         return metric_val
 
-    # --- MERGED: Helper function for the two-phase sync protocol ---
     async def _wait_for_clients_ready(self, round_num, num_expected):
         while len(self.clients_ready_for_round.get(round_num, [])) < num_expected:
             await asyncio.sleep(1)
         
-    # --- RETAINED: Post-round acknowledgment from Script 1 ---
     async def wait_for_client_acknowledgements(self):
         if not self.last_round_participants or self.is_complete():
             return
             
         task_log(self.task_id, f"Round {self.current_round} complete. Waiting for {len(self.last_round_participants)} clients to acknowledge: {self.last_round_participants}")
         
-        # Wait for acknowledgments with a timeout
         try:
-            async with asyncio.timeout(120): # 2 minute timeout for acknowledgment
+            async with asyncio.timeout(120):
                 while len(self.clients_acknowledged_round.get(self.current_round, set())) < len(self.last_round_participants):
                     await asyncio.sleep(2)
         except TimeoutError:
@@ -342,9 +326,6 @@ class ControllerClientPlaceholder:
             print(f"CONTROLLER: Assigned task '{session.task_id}' to client #{self.client_id} (Locked: {session.is_locked})")
         
         elif msg_type == "REQUEST_UPDATE":
-            # This is the server asking for the update. For a controller, this is the trigger
-            # to simulate the update injection via the 'send' action.
-            # The actual injection happens in the /controller/action endpoint.
             print(f"CONTROLLER: Server requested update from client #{self.client_id}. UI should now be enabled to 'send'.")
 
 
@@ -474,13 +455,9 @@ async def controller_action(request: ActionRequest):
             update_path = os.path.join(manager.PREBAKED_UPDATES_PATH, f"prebaked_update_{session.client_id}.json")
             with open(update_path, 'r') as f:
                 update = await asyncio.to_thread(deserialize_model_update, f.read())
-            
-            # --- INTEGRATED: Inject update and satisfy the older protocol's state requirements ---
-            # 1. Mark the client as ready (simulates TRAINING_COMPLETE message)
+
             task.clients_ready_for_round.setdefault(session.round, []).append(session.client_id)
-            # 2. Add the update to the list for the round
             task.updates_for_round.setdefault(session.round, []).append(update)
-            # 3. Set the event to signal that the update has been "received"
             if session.round in task.update_received_event_for_round:
                 task.update_received_event_for_round[session.round].set()
 
@@ -530,14 +507,13 @@ async def admin_kick_client(request: AdminActionRequest):
     print(f"ADMIN: Kicked client #{request.client_id}")
     return {"message": f"Client #{request.client_id} has been kicked."}
 
-# --- RETAINED: Orchestrator loop from Script 1, which uses acknowledgments ---
 async def sync_orchestrator_loop(task: FederationTask):
     while not task.is_complete():
         await task.execute_synchronous_round(manager)
         await task.wait_for_client_acknowledgements()
 
 async def async_orchestrator_loop(task: FederationTask):
-    await manager.broadcast_model(task) # Initial broadcast
+    await manager.broadcast_model(task)
     while not task.is_complete():
         await asyncio.sleep(task.config.get('aggregation_interval_seconds', 30))
         await task.execute_asynchronous_aggregation(manager)
@@ -583,7 +559,6 @@ TASK_SERVER_LOCATIONS = {"arrhythmia": {"name": "Zurich", "lat": 47.37, "lon": 8
 async def startup_event():
     for task in manager.tasks.values(): asyncio.create_task(start_orchestrator(task))
 
-# --- MERGED: WebSocket handler from Script 2 to support the older, robust protocol ---
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: int):
     await websocket.accept()

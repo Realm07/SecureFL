@@ -2,13 +2,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = window.location.origin;
     const state = { clientId: null, sessionToken: null, statusPollInterval: null };
 
-    // DOM References
     const screens = { login: document.getElementById('login-screen'), waiting: document.getElementById('waiting-screen'), control: document.getElementById('control-screen') };
     const steps = {
         data: document.getElementById('step-data'),
         actions: document.getElementById('step-actions'),
         rewarded: document.getElementById('step-rewarded'),
-        waiting_agg: document.getElementById('step-waiting-agg') // This was the missing piece
+        waiting_agg: document.getElementById('step-waiting-agg') 
     };
     
     const connectionStatus = document.getElementById('connection-status');
@@ -22,12 +21,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const encryptedDataPre = document.getElementById('encrypted-data-pre');
     let dummyRawData = {};
     
-    // UI Helpers
     function showScreen(screenName) { Object.values(screens).forEach(s => s.classList.remove('active')); screens[screenName].classList.add('active'); }
     function showStep(stepName) { Object.values(steps).forEach(s => s.classList.remove('active')); steps[stepName].classList.add('active'); }
     function updateConnectionStatus(isConnected) { connectionStatus.className = `status-dot ${isConnected ? 'connected' : 'disconnected'}`; }
 
-    // API Call Wrapper
     async function apiCall(endpoint, method = 'GET', body = null) {
         try {
             const options = { method, headers: { 'Content-Type': 'application/json' } };
@@ -43,7 +40,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Main Application Flow
     async function initializeLogin() {
         try {
             const { available } = await apiCall('/controller/slots');
@@ -103,7 +99,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('task-title').textContent = `Task: ${status.task_info.task_id}`;
         resetActionButtons();
         populateDataGrid();
-        // --- NEW: Hide visualization on new task setup ---
         dataVisualization.style.display = 'none';
         
         const dpButton = document.querySelector('.action-btn[data-action="dp"]');
@@ -117,7 +112,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const btnToEnable = document.querySelector(`.action-btn[data-action="${action}"]`);
             if(btnToEnable) btnToEnable.classList.add('enabled');
         } else {
-             // Default start: enable nothing until data is confirmed
         }
     }
 
@@ -184,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
                  dataVisualization.style.display = 'none';
             }
 
-            // ... (Handle next_step logic) ...
             const nextStepAction = response.next_step.replace('actions_', '');
 
             if (response.next_step === "waiting_for_aggregation") {

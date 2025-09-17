@@ -6,7 +6,6 @@ import base64
 from collections import OrderedDict
 import torch
 
-# --- NEW: Import model and config getters to build a real model ---
 from config import get_config
 from models import get_model
 
@@ -22,12 +21,10 @@ def create_dummy_updates():
     print(f"--- Generating Pre-baked Updates for Clients {list(DUMMY_CLIENT_IDS)} ---")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # --- FIX: Instantiate a real model to get correct shapes and layer names ---
     config = get_config('arrhythmia')
     model = get_model(config)
     encrypted_layers = config.get('encrypted_layers', [])
-    
-    # Create a dummy state_dict to extract info from
+
     state_dict_to_encrypt = {k: v for k, v in model.state_dict().items() if k in encrypted_layers}
     
     # 1. Build the correct param_info and calculate total vector size
@@ -42,7 +39,6 @@ def create_dummy_updates():
     
     vector_size = len(flat_params_template)
     print(f"  > Model architecture detected. Encrypting {vector_size} parameters.")
-    # --------------------------------------------------------------------------
 
     context = ts.context(
         ts.SCHEME_TYPE.CKKS,
@@ -54,7 +50,6 @@ def create_dummy_updates():
     slot_count = POLY_MOD_DEGREE // 2
 
     for client_id in DUMMY_CLIENT_IDS:
-        # Generate random data with the now-correct size
         flat_params = np.random.randn(vector_size).tolist()
 
         encrypted_batches_raw = [

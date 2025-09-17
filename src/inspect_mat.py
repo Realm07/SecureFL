@@ -78,10 +78,6 @@ def inspect_mat_file(file_path):
         traceback.print_exc()
 
 if __name__ == "__main__":
-    # --- IMPORTANT ---
-    # Adjust this path to match your project structure exactly.
-    # It should point to ONE of the .mat files.
-    # We are going up one level from `src` to the project root, then down into the data folder.
     project_root = os.path.dirname(os.path.abspath(__file__))
     file_to_inspect = os.path.join(
         project_root, 

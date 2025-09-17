@@ -1,4 +1,3 @@
-// --- CONSTANTS ---
 const GLOBE_RADIUS = 100;
 const CLIENT_POINT_RADIUS = 0.9;
 const SERVER_POINT_RADIUS = 2.3;
@@ -7,7 +6,6 @@ const PULSE_MAIN_RADIUS = 0.9;
 const PULSE_GLOW_RADIUS = 1.75;
 const ARC_THICKNESS = 0.35;
 
-// --- UTILITY FUNCTIONS ---
 function latLonToVector3(lat, lon, radius) {
     const phi = (90 - lat) * (Math.PI / 180);
     const theta = (lon + 180) * (Math.PI / 180);
@@ -26,10 +24,9 @@ function createCurve(startVec, endVec) {
     return new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);
 }
 
-// --- MAIN GLOBE FUNCTION ---
 function createGlobe(container) {
     return new Promise((resolve, reject) => {
-        let scene, camera, renderer, controls, earthMesh, cloudsMesh; // Removed composer
+        let scene, camera, renderer, controls, earthMesh, cloudsMesh;
         let clientPoints = new Map();
         let serverPoint = null;
         let serverGlow = null;
@@ -42,8 +39,6 @@ function createGlobe(container) {
         let mouse = new THREE.Vector2();
         let currentlyHovered = null;
         let animationFrameId;
-
-        // --- ALL INTERNAL FUNCTIONS ARE DEFINED HERE, BEFORE `init()` ---
 
         function addOrUpdateArc(clientId, clientLocation, serverLocation) {
             const key = `arc-${clientId}`;
@@ -160,7 +155,6 @@ function createGlobe(container) {
             camera.aspect = container.clientWidth / container.clientHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(container.clientWidth, container.clientHeight);
-            // composer.setSize(container.clientWidth, container.clientHeight); // Removed
         }
 
         function onMouseMove(event) {
@@ -180,8 +174,8 @@ function createGlobe(container) {
                     if (data.tokenomics) {
                         const balance = (data.tokenomics.balance || 0).toFixed(2);
                         const stake = (data.tokenomics.total_stake || 0).toFixed(2);
-                        content += `<div style="margin-top: 5px;">Balance: ${balance} AFT</div>`; // <-- Change here
-                        content += `<div>Stake: ${stake} AFT</div>`; // <-- Change here
+                        content += `<div style="margin-top: 5px;">Balance: ${balance} AFT</div>`;
+                        content += `<div>Stake: ${stake} AFT</div>`;
                     }
                     tooltipElement.innerHTML = content;
                     tooltipElement.style.display = 'block';
@@ -265,7 +259,7 @@ function createGlobe(container) {
                 });
             }
             if (tooltipElement) tooltipElement.remove();
-            scene = null; camera = null; renderer = null; controls = null; // Removed composer
+            scene = null; camera = null; renderer = null; controls = null;
             clientPoints.clear(); activeArcs.clear(); activePulses = [];
         }
 
@@ -275,7 +269,7 @@ function createGlobe(container) {
             if (cloudsMesh && cloudsMesh.visible) cloudsMesh.rotation.y += 0.0001;
             animatePulses();
             controls.update();
-            renderer.render(scene, camera); // Changed from composer.render()
+            renderer.render(scene, camera);
         }
 
         function init() {
@@ -323,10 +317,6 @@ function createGlobe(container) {
                 scene.add(new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6));
                 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
                 
-                // --- REMOVED POST-PROCESSING ---
-                // composer = new THREE.EffectComposer(renderer);
-                // composer.addPass(new THREE.RenderPass(scene, camera));
-                // composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85));
 
                 animate();
                 window.addEventListener('resize', onWindowResize);
@@ -344,7 +334,6 @@ function createGlobe(container) {
             }
         }
 
-        // --- Asynchronous script loading ---
         const tweenScript = document.createElement('script');
         tweenScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js';
         tweenScript.onload = init;

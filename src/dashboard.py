@@ -367,15 +367,9 @@ def display_final_proof(config, real_results):
 
     try:
         if config['dataset_name'] == 'arrhythmia':
-            # --- THE DEFINITIVE FIX ---
-            # 1. Call get_datasets and explicitly capture the `trainset` it returns.
-            #    We no longer care if the 'config' dictionary is modified.
             trainset, _, _, _ = get_datasets(config)
             
-            # 2. Prepare the data needed by the diagnosis function FROM the returned trainset.
             X_train_scaled = trainset.tensors[0].numpy()
-            
-            # The rest of the function now works with guaranteed data.
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
             trained_model.eval()
@@ -388,7 +382,6 @@ def display_final_proof(config, real_results):
             
             scaler = joblib.load(scaler_path)
             
-            # 3. Pass the explicitly prepared `X_train_scaled` data as an argument.
             display_interactive_diagnosis(config, real_results, trained_model, scaler, X_train_scaled)
             
             st.subheader("Overall Model Performance")
@@ -398,7 +391,6 @@ def display_final_proof(config, real_results):
             with analysis_cols[1]: st.text("Classification Report:"); st.json(report_dict)
         
         elif config['dataset_name'] == 'mnist':
-            # This block was already robust and needs no changes.
             get_datasets(config)
             trained_model = get_model(config)
             trained_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=config['device']))
@@ -441,7 +433,6 @@ if __name__ == "__main__":
 
     @st.cache_data
     def load_json_results(filename):
-        # This function now reads from the correct, centralized directory
         full_path = os.path.join(RESULTS_DIR, filename)
         if os.path.exists(full_path):
             with open(full_path, 'r') as f: return json.load(f)

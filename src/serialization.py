@@ -9,16 +9,13 @@ def serialize_model_update(update):
     Serializes a model update (which can be a hybrid dict of plaintext tensors
     and encrypted ciphertexts) into a JSON-safe string.
     """
-    # Handle plaintext tensors by encoding them to Base64 strings
     if 'plaintext_params' in update and update['plaintext_params']:
         for key, tensor in update['plaintext_params'].items():
             buffer = io.BytesIO()
             torch.save(tensor, buffer)
             update['plaintext_params'][key] = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-    # --- NEW: Handle encrypted bundle by encoding the raw bytes to Base64 strings ---
     if 'encrypted_bundle' in update and update['encrypted_bundle']:
-        # The 'param_info' is already JSON-safe, but the 'encrypted_batches' are raw bytes
         update['encrypted_bundle']['encrypted_batches'] = [
             base64.b64encode(batch).decode('utf-8') 
             for batch in update['encrypted_bundle']['encrypted_batches']
@@ -33,13 +30,11 @@ def deserialize_model_update(json_str):
     """
     update = json.loads(json_str)
     
-    # Handle plaintext tensors by decoding them from Base64 strings
     if 'plaintext_params' in update and update['plaintext_params']:
         for key, b64_str in update['plaintext_params'].items():
             buffer = io.BytesIO(base64.b64decode(b64_str))
             update['plaintext_params'][key] = torch.load(buffer)
             
-    # Handle encrypted bundle by decoding the Base64 strings back to bytes
     if 'encrypted_bundle' in update and update['encrypted_bundle']:
         update['encrypted_bundle']['encrypted_batches'] = [
             base64.b64decode(b64_str)

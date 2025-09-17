@@ -51,7 +51,6 @@ class BatteryLSTM(nn.Module):
     An LSTM-based model to predict Remaining Useful Life (RUL) of batteries.
     This is a regression model.
     """
-    # --- ADD drop_prob to the constructor ---
     def __init__(self, input_dim, hidden_dim, n_layers, output_dim=1, drop_prob=0.2):
         super(BatteryLSTM, self).__init__()
         self.hidden_dim = hidden_dim
@@ -85,21 +84,16 @@ class LSTMAttention(nn.Module):
             nn.Linear(hidden_dim, 1)
         )
         
-        # Final fully connected layer
         self.fc = nn.Linear(hidden_dim * 2, output_dim)
 
     def forward(self, x):
-        # LSTM output shape: (batch_size, seq_len, hidden_dim * 2)
         lstm_out, _ = self.lstm(x)
         
-        # Attention weights shape: (batch_size, seq_len, 1)
         attention_weights = self.attention_layer(lstm_out)
         attention_weights = F.softmax(attention_weights, dim=1)
         
-        # Context vector shape: (batch_size, hidden_dim * 2)
         context_vector = torch.sum(attention_weights * lstm_out, dim=1)
         
-        # Final prediction
         out = self.fc(context_vector)
         return out
     
@@ -114,14 +108,13 @@ def get_model(config):
             num_classes=config['num_classes']
         )
     elif model_name == 'lstm_battery':
-        # This remains for backward compatibility or other experiments
         return BatteryLSTM(
             input_dim=config['num_features'],
             hidden_dim=config['lstm_hidden_dim'],
             n_layers=config['lstm_n_layers'],
             drop_prob=config.get('lstm_drop_prob', 0.2)
         )
-    elif model_name == 'lstm_attention': # Our new model
+    elif model_name == 'lstm_attention':
         return LSTMAttention(
             input_dim=config['num_features'],
             hidden_dim=config['lstm_hidden_dim'],

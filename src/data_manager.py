@@ -1,4 +1,3 @@
-# src/data_manager.py
 import os
 import numpy as np
 import torch
@@ -34,7 +33,7 @@ class DataManager:
 
 
     def _prepare_arrhythmia(self):
-        # This will now work correctly
+
         config = self.base_config_getter('arrhythmia')
         
         trainset, testset, _, _ = load_arrhythmia_data(config)
@@ -102,7 +101,6 @@ class DataManager:
         return imfs[-1] # Return the residual trend
 
     def _create_nasa_dataset_from_denoised(self, files, config, scaler, denoised_curves):
-        # This is a simplified version of NASABatteryDataset that uses pre-computed data
         features, labels = [], []
         seq_len = config['sequence_length']
         
@@ -118,10 +116,8 @@ class DataManager:
         
         print(f"    - Created {len(features)} sequences for {os.path.basename(files[0])}")
         
-        # --- FIX: Ensure labels tensor has the correct shape [n_samples, 1] ---
         features_tensor = torch.tensor(np.array(features), dtype=torch.float32)
         labels_tensor = torch.tensor(np.array(labels), dtype=torch.float32).view(-1, 1)
-        # ------------------------------------------------------------------------
         return TensorDataset(features_tensor, labels_tensor)
     
     def get_client_data(self, task_id, client_id):

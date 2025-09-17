@@ -82,15 +82,11 @@ def train_local_client_secure(model, dataloader, config, context, slot_count):
         )
         training_dataloader = opacus_dataloader
 
-    # Use a learning rate scheduler for more stable local training
     scheduler = optim.lr_scheduler.StepLR(
         optimizer,
         step_size=config.get('lr_scheduler_step_size', 100),
         gamma=config.get('lr_scheduler_gamma', 1.0)
     )
-    # -------------------
-
-    # Determine the correct loss function based on the task metric
     if config.get('metric') == 'rmse':
         criterion = nn.MSELoss()
     else:
@@ -109,7 +105,6 @@ def train_local_client_secure(model, dataloader, config, context, slot_count):
                 loss = criterion(output, target)
                 loss.backward()
                 optimizer.step()
-            # Step the scheduler after each epoch
             scheduler.step()
         
         if privacy_engine:

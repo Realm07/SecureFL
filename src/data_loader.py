@@ -92,26 +92,11 @@ def get_datasets(config):
         return trainset, testset
 
     elif dataset_name == 'arrhythmia':
-        # --- THE FIX ---
-        # Call the loader function which returns 4 values...
         trainset, testset, _, _ = load_arrhythmia_data(config)
-        # ...but only return the 2 values that the live server architecture expects.
         return trainset, testset
 
     elif dataset_name == 'nasa_battery':
-        # This already correctly returns (client_datasets, test_set).
-        # We need to make it return (full_train_set, test_set) for consistency.
-        # For now, let's just make the client partition it. The server doesn't need the trainset anyway.
         client_datasets, test_set = get_nasa_datasets(config)
-        # We will create a "dummy" full trainset for the server, as it's not used there.
-        # The client will call this function again and use the partitioned datasets.
-        # A more elegant solution would be to split train/test inside `get_nasa_datasets`
-        # and then partition the trainset.
-        # For simplicity and to match the arrhythmia change, let's return a dummy trainset for the server.
-        # The client logic will correctly partition this later.
-        
-        # This is a bit of a hack for the server side, which only needs the test set.
-        # The client will regenerate the partitioned datasets correctly.
         full_train_set = torch.utils.data.ConcatDataset(client_datasets)
         return full_train_set, test_set
 
@@ -126,7 +111,6 @@ def get_client_datasets(config):
         client_datasets, _ = get_nasa_datasets(config)
         return client_datasets
     else:
-        # For other datasets, partition the full training set
         full_trainset, _ = get_datasets(config)
         client_datasets, _ = partition_iid(full_trainset, config['num_clients'])
         return client_datasets

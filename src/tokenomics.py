@@ -19,12 +19,11 @@ class TokenManager:
             with open(self.storage_path, 'r') as f:
                 loaded_accounts = {int(k): v for k, v in json.load(f).items()}
             
-            # --- FIX: Upgrade old stake format to new task-specific format ---
             for client_id, account_data in loaded_accounts.items():
                 if isinstance(account_data.get("stake"), (int, float)):
                     print(f"INFO: Upgrading stake format for Client #{client_id}.")
                     old_stake = account_data["stake"]
-                    account_data["stake"] = {"arrhythmia": old_stake} # Default to a base task
+                    account_data["stake"] = {"arrhythmia": old_stake} 
             
             self.accounts = loaded_accounts
             print("INFO: Tokenomics accounts loaded and validated from disk.")
@@ -42,14 +41,12 @@ class TokenManager:
         if client_id not in self.accounts:
             print(f"INFO: Registering new Client #{client_id} in token economy.")
             self.accounts[client_id] = { "balance": self.initial_balance, "stake": {} }
-            # Auto-stake in a default task for initial eligibility
             self.stake_tokens(client_id, self.initial_stake, "arrhythmia")
-            # No need to save here, stake_tokens already does
 
     def has_sufficient_stake(self, client_id: int, required_stake: float) -> bool:
         if client_id not in self.accounts: return False
         stake_data = self.accounts[client_id].get("stake", {})
-        if not isinstance(stake_data, dict): return False # Defensive check
+        if not isinstance(stake_data, dict): return False 
         total_stake = sum(stake_data.values())
         return total_stake >= required_stake
 
@@ -75,12 +72,11 @@ class TokenManager:
         return True, f"Successfully staked {amount:.2f} tokens."
         
     def get_all_accounts(self) -> Dict[int, Dict[str, Any]]:
-        # --- FIX: Create a view of the accounts that includes the calculated total_stake ---
-        accounts_view = json.loads(json.dumps(self.accounts)) # Deep copy
+        accounts_view = json.loads(json.dumps(self.accounts))
         for client_id, account in accounts_view.items():
             stake_data = account.get("stake", {})
             if isinstance(stake_data, dict):
                 account["total_stake"] = sum(stake_data.values())
             else:
-                account["total_stake"] = 0 # Fallback for malformed data
+                account["total_stake"] = 0 
         return accounts_view

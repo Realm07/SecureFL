@@ -14,11 +14,9 @@ from .models import get_model
 from .fl_logic import train_local_client_secure
 from .serialization import serialize_model_update, deserialize_model
 
-# --- GLOBALS FOR ASYNC CONTEXT ---
 websocket_connection = None
 _pending_updates = {}
 tasks_in_progress: Set[str] = set()
-# Use a single, persistent data manager instance
 data_manager = ClientDataManager()
 
 async def run_training_and_send_update(client_id: int, task_id: str, payload: dict, context, slot_count):
@@ -28,7 +26,6 @@ async def run_training_and_send_update(client_id: int, task_id: str, payload: di
         print(f"\nClient #{client_id}: Received task '{task_id}' (v{payload.get('model_version', 'sync')}). Starting training...")
         config = payload['config']
         
-        # Use the robust data manager
         dataloader = data_manager.get_dataloader(client_id, config)
         
         local_model = get_model(config)
@@ -42,13 +39,13 @@ async def run_training_and_send_update(client_id: int, task_id: str, payload: di
             update_str = serialize_model_update(encrypted_update)
             gc.collect()
 
-            if payload.get('model_version') is not None: # Async tasks have a model version
+            if payload.get('model_version') is not None:
                 print(f"Client #{client_id}: Async training for '{task_id}' complete. Sending update.")
                 message = {"type": "ASYNC_UPDATE", "payload": {
                     "task_id": task_id, "model_version": payload['model_version'], "update_data": update_str
                 }}
                 await websocket_connection.send(json.dumps(message))
-            else: # Sync task
+            else:
                 _pending_updates[task_id] = {"update_str": update_str, "round_num": payload['round']}
                 print(f"Client #{client_id}: Sync training for '{task_id}' complete. Notifying server.")
                 ready_message = {"type": "TRAINING_COMPLETE", "payload": {"task_id": task_id, "round": payload['round']}}
@@ -58,10 +55,8 @@ async def run_training_and_send_update(client_id: int, task_id: str, payload: di
         print(f"Client #{client_id}: ERROR during background training for '{task_id}': {e}")
         traceback.print_exc()
     finally:
-        # --- CRITICAL FIX: Mark task as no longer in progress ---
         if task_id in tasks_in_progress:
             tasks_in_progress.remove(task_id)
-        # ---------------------------------------------------------
 
 async def client_logic(client_id):
     global websocket_connection, _pending_updates, tasks_in_progress
@@ -86,13 +81,11 @@ async def client_logic(client_id):
                     task_id = payload.get("task_id")
 
                     if msg_type in ['START_TRAINING', 'NEW_GLOBAL_MODEL']:
-                        # --- CRITICAL FIX: Prevent starting a task that's already running ---
                         if task_id in tasks_in_progress:
                             print(f"Client #{client_id}: Ignoring new request for task '{task_id}' as it's already in progress.")
                             continue
                         
                         tasks_in_progress.add(task_id)
-                        # -----------------------------------------------------------------------
                         asyncio.create_task(run_training_and_send_update(client_id, task_id, payload, context, slot_count))
 
                     elif msg_type == 'REQUEST_UPDATE':
@@ -119,7 +112,7 @@ async def client_logic(client_id):
             print(f"Client #{client_id}: An unexpected error occurred: {e}")
         finally:
             websocket_connection = None
-            tasks_in_progress.clear() # Clear all tasks on disconnect
+            tasks_in_progress.clear()
             await asyncio.sleep(5)
 
 if __name__ == "__main__":

@@ -122,10 +122,8 @@ def run_simulation_secure(global_model, trainset, test_loader, config, privacy_p
         ]
         
         if valid_updates := [u for u in encrypted_updates if u is not None]:
-            # The returned dict is the average of weight *deltas*
             avg_delta_dict = aggregate_and_decrypt_tenseal(context, valid_updates, len(valid_updates))
             if avg_delta_dict:
-                # Apply the delta to the current global model state
                 current_global_dict = global_model.state_dict()
                 new_global_dict = OrderedDict()
                 for key in current_global_dict:

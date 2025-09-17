@@ -1,10 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- STATE MANAGEMENT ---
     let state = {
         selectedTaskId: null, tasks: {}, network: {}, tokenomics: {},
         charts: { accuracyChart: null }, globe: null, _prevState: {} 
     };
-    // NEW: State for the ledger view
     let ledgerState = {
         chain: [],
         currentPage: 0,
@@ -13,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
         currentTaskId: null
     };
 
-    // --- DOM ELEMENT REFERENCES ---
     const sidebar = document.querySelector('.sidebar');
     const sidebarToggleBtn = document.getElementById('sidebar-toggle');
     const sidebarNav = document.querySelector('.sidebar-nav');
@@ -31,12 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const marketplaceGrid = document.getElementById('marketplace-grid');
     const rotationToggle = document.getElementById('toggle-rotation');
     const cloudsToggle = document.getElementById('toggle-clouds');
-    // Ledger DOM references
     const ledgerGrid = document.getElementById('ledger-grid');
     const ledgerRefreshBtn = document.getElementById('ledger-refresh-btn');
     const ledgerLoadMoreBtn = document.getElementById('ledger-load-more-btn');
     const ledgerTaskDisplay = document.getElementById('ledger-task-display');
-    // --- NEW: Client ID Modal DOM References ---
     const clientIdModalOverlay = document.getElementById('client-id-modal-overlay');
     const clientIdForm = document.getElementById('client-id-form');
     const clientIdInput = document.getElementById('client-id-input');
@@ -44,7 +39,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalBodyText = clientIdModalOverlay.querySelector('.modal-text');
 
 
-    // --- LOGGING ---
     function logEvent(message, type = 'info') {
         const logEntry = document.createElement('div');
         const timestamp = new Date().toLocaleTimeString();
@@ -53,7 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
         eventLog.prepend(logEntry);
     }
 
-    // --- CHART INITIALIZATION ---
     function initializeAccuracyChart() {
         const ctx = document.getElementById('accuracy-chart').getContext('2d');
         state.charts.accuracyChart = new Chart(ctx, {
@@ -63,7 +56,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- LEDGER FUNCTIONS ---
     function renderLedgerBlock(block) {
         const metricName = state.tasks[ledgerState.currentTaskId]?.metric?.toUpperCase() || 'METRIC';
         const metricValue = block.round_data.global_model_accuracy !== undefined ? block.round_data.global_model_accuracy.toFixed(2) : 'N/A';
@@ -102,18 +94,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const reversedChain = [...ledgerState.chain].reverse();
-        const start = 0; // Always start from the beginning
+        const start = 0;
         const end = (ledgerState.currentPage + 1) * ledgerState.blocksPerPage;
         const blocksToShow = reversedChain.slice(start, end);
 
-        // On initial page load (or refresh), clear the grid
         if (ledgerState.currentPage === 0) {
             ledgerGrid.innerHTML = '';
         }
         
         ledgerGrid.innerHTML = blocksToShow.map(renderLedgerBlock).join('');
         
-        // Show or hide the "Load More" button
         if (end < reversedChain.length) {
             ledgerLoadMoreBtn.style.display = 'block';
         } else {
@@ -129,8 +119,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         ledgerState.isLoading = true;
         ledgerState.currentTaskId = state.selectedTaskId;
-        ledgerState.currentPage = 0; // Reset page on new fetch
-        renderLedgerPage(); // Show loading state
+        ledgerState.currentPage = 0;
+        renderLedgerPage();
 
         try {
             const response = await fetch(`/tasks/${state.selectedTaskId}/ledger`);
@@ -141,10 +131,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error("Failed to fetch ledger:", error);
             logEvent(`Failed to fetch ledger for '${state.selectedTaskId}': ${error.message}`, 'error');
-            ledgerState.chain = []; // Clear chain on error
+            ledgerState.chain = []; 
         } finally {
             ledgerState.isLoading = false;
-            renderLedgerPage(); // Render the final result (data or empty state)
+            renderLedgerPage();
         }
     }
 
@@ -152,17 +142,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const taskName = state.selectedTaskId ? state.selectedTaskId.replace(/_/g, ' ') : 'None';
         ledgerTaskDisplay.innerHTML = `Viewing ledger for: <strong>${taskName}</strong>`;
         
-        // Reset state if the task has changed
         if (ledgerState.currentTaskId !== state.selectedTaskId) {
             ledgerState.chain = [];
             ledgerState.currentPage = 0;
             ledgerState.currentTaskId = state.selectedTaskId;
-            renderLedgerPage(); // Renders the placeholder message
+            renderLedgerPage(); 
         }
     }
 
-
-    // --- SMART RENDER FUNCTION ---
     function render() {
         const prev = state._prevState;
         
@@ -204,7 +191,6 @@ document.addEventListener('DOMContentLoaded', () => {
         state.globe.removeInactiveArcs(connectedClients.map(c => c.id));
     }
 
-    // --- UI UPDATE FUNCTIONS ---
     function updateTaskSelector() {
         const currentTaskIds = Object.keys(state.tasks);
         if (currentTaskIds.length === 0) return;
@@ -339,7 +325,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- DATA FETCHING ---
     async function fetchStatusData() {
         try {
             const statusResponse = await fetch('/status');
@@ -375,16 +360,14 @@ document.addEventListener('DOMContentLoaded', () => {
             logEvent(`Failed to refresh tokenomics: ${error.message}`, 'error');
         }
     }
-    
-    // --- NEW: Custom Modal Logic ---
+
     function getClientIdWithModal(taskId, amount) {
         return new Promise((resolve, reject) => {
-            // Update modal text for context
             modalHeaderText.textContent = `Stake on Task: ${taskId.replace(/_/g, ' ')}`;
             modalBodyText.textContent = `You are about to stake ${amount} AFT. Please confirm your Client ID to proceed.`;
 
             clientIdModalOverlay.classList.add('visible');
-            clientIdInput.value = ''; // Clear previous input
+            clientIdInput.value = '';
             clientIdInput.focus();
 
             const handleSubmit = (event) => {
@@ -417,14 +400,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 reject(new Error("User cancelled the operation."));
             };
 
-            // Attach event listeners
             clientIdForm.addEventListener('submit', handleSubmit);
             clientIdModalOverlay.addEventListener('click', handleCancel);
         });
     }
 
 
-    // --- EVENT LISTENERS ---
     sidebarToggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('collapsed');
         const icon = sidebarToggleBtn.querySelector('i');
@@ -502,7 +483,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- MODIFIED: Marketplace click listener to use custom modal ---
     marketplaceGrid.addEventListener('click', async (e) => {
         if (!e.target.matches('.stake-button')) return;
 
@@ -521,7 +501,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clientIdStr = await getClientIdWithModal(taskId, amount);
         } catch (error) {
             logEvent('Stake operation cancelled.', 'info');
-            return; // Exit if user cancels
+            return;
         }
         
         const clientId = parseInt(clientIdStr, 10);
@@ -554,7 +534,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- INITIALIZATION ---
     async function initializeDashboard() {
         logEvent('Dashboard Initialized. Connecting to server...');
         if (typeof Chart === 'undefined' || typeof THREE === 'undefined' || typeof createGlobe === 'undefined') {

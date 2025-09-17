@@ -34,9 +34,9 @@ def get_config(dataset_name="mnist"):
         config.update({
             'dataset_name': 'nasa_battery', 
             'model_name': 'lstm_attention',
-            'learning_mode': 'asynchronous', # This task will run in the new continuous mode
-            'aggregation_interval_seconds': 30, # Aggregate updates every 30 seconds...
-            'min_updates_for_aggregation': 2,   # ...if at least 2 updates are available.
+            'learning_mode': 'asynchronous', 
+            'aggregation_interval_seconds': 30, 
+            'min_updates_for_aggregation': 2,  
             'nasa_data_folder': '1. BatteryAgingARC-FY08Q4',
             'model_save_path': 'trained_battery_model.pth', 'num_rounds': 25,
             'local_epochs': 20,
@@ -52,7 +52,6 @@ def get_config(dataset_name="mnist"):
             'encrypted_layers': ['fc.weight', 'fc.bias', 'attention_layer.0.weight', 'attention_layer.0.bias', 'attention_layer.2.weight', 'attention_layer.2.bias'],
         })
     else:
-        # A default for dynamically created tasks, can be overridden by the UI
         config.update({
             'dataset_name': dataset_name,
             'model_name': 'mlp',
