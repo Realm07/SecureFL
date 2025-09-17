@@ -4,6 +4,14 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedTaskId: null, tasks: {}, network: {}, tokenomics: {},
         charts: { accuracyChart: null }, globe: null, _prevState: {} 
     };
+    // NEW: State for the ledger view
+    let ledgerState = {
+        chain: [],
+        currentPage: 0,
+        blocksPerPage: 20,
+        isLoading: false,
+        currentTaskId: null
+    };
 
     // --- DOM ELEMENT REFERENCES ---
     const sidebar = document.querySelector('.sidebar');
@@ -23,6 +31,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const marketplaceGrid = document.getElementById('marketplace-grid');
     const rotationToggle = document.getElementById('toggle-rotation');
     const cloudsToggle = document.getElementById('toggle-clouds');
+    // NEW: Ledger DOM references
+    const ledgerGrid = document.getElementById('ledger-grid');
+    const ledgerRefreshBtn = document.getElementById('ledger-refresh-btn');
+    const ledgerLoadMoreBtn = document.getElementById('ledger-load-more-btn');
+    const ledgerTaskDisplay = document.getElementById('ledger-task-display');
 
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
@@ -43,23 +56,119 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- NEW: LEDGER FUNCTIONS ---
+    function renderLedgerBlock(block) {
+        const metricName = state.tasks[ledgerState.currentTaskId]?.metric?.toUpperCase() || 'METRIC';
+        const metricValue = block.round_data.global_model_accuracy !== undefined ? block.round_data.global_model_accuracy.toFixed(2) : 'N/A';
+        const roundData = block.round_data.message ? `<p><strong>Message:</strong> <span>${block.round_data.message}</span></p>` : `
+            <p><strong>Round Number:</strong> <span>${block.round_data.round_number}</span></p>
+            <p><strong>Participants:</strong> <span>[${block.round_data.participants.join(', ')}]</span></p>
+            <p><strong>${metricName}:</strong> <span>${metricValue}</span></p>
+            <p><strong>Model Hash:</strong> <span class="hash-value">${block.round_data.global_model_hash.substring(0, 32)}...</span></p>
+        `;
+
+        return `
+            <div class="ledger-block-card">
+                <div class="ledger-block-header">
+                    <span class="block-index">Block #${block.index}</span>
+                    <span class="block-timestamp">${new Date(block.timestamp * 1000).toLocaleString()}</span>
+                </div>
+                <div class="ledger-block-body">
+                    ${roundData}
+                    <p><strong>Previous Hash:</strong> <span class="hash-value">${block.previous_hash.substring(0, 32)}...</span></p>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderLedgerPage() {
+        if (ledgerState.isLoading) {
+            ledgerGrid.innerHTML = `<p class="placeholder-message">Loading ledger...</p>`;
+            ledgerLoadMoreBtn.style.display = 'none';
+            return;
+        }
+
+        if (ledgerState.chain.length === 0) {
+            ledgerGrid.innerHTML = `<p class="placeholder-message">No ledger found for this task, or task not selected. Click Refresh.</p>`;
+            ledgerLoadMoreBtn.style.display = 'none';
+            return;
+        }
+
+        const reversedChain = [...ledgerState.chain].reverse();
+        const start = 0; // Always start from the beginning
+        const end = (ledgerState.currentPage + 1) * ledgerState.blocksPerPage;
+        const blocksToShow = reversedChain.slice(start, end);
+
+        // On initial page load (or refresh), clear the grid
+        if (ledgerState.currentPage === 0) {
+            ledgerGrid.innerHTML = '';
+        }
+        
+        ledgerGrid.innerHTML = blocksToShow.map(renderLedgerBlock).join('');
+        
+        // Show or hide the "Load More" button
+        if (end < reversedChain.length) {
+            ledgerLoadMoreBtn.style.display = 'block';
+        } else {
+            ledgerLoadMoreBtn.style.display = 'none';
+        }
+    }
+
+    async function fetchAndRenderLedger() {
+        if (!state.selectedTaskId) {
+            logEvent('Cannot fetch ledger: No task selected.', 'warn');
+            return;
+        }
+        
+        ledgerState.isLoading = true;
+        ledgerState.currentTaskId = state.selectedTaskId;
+        ledgerState.currentPage = 0; // Reset page on new fetch
+        renderLedgerPage(); // Show loading state
+
+        try {
+            const response = await fetch(`/tasks/${state.selectedTaskId}/ledger`);
+            if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
+            
+            const chainData = await response.json();
+            ledgerState.chain = Array.isArray(chainData) ? chainData : [];
+        } catch (error) {
+            console.error("Failed to fetch ledger:", error);
+            logEvent(`Failed to fetch ledger for '${state.selectedTaskId}': ${error.message}`, 'error');
+            ledgerState.chain = []; // Clear chain on error
+        } finally {
+            ledgerState.isLoading = false;
+            renderLedgerPage(); // Render the final result (data or empty state)
+        }
+    }
+
+    function prepareLedgerView() {
+        const taskName = state.selectedTaskId ? state.selectedTaskId.replace(/_/g, ' ') : 'None';
+        ledgerTaskDisplay.innerHTML = `Viewing ledger for: <strong>${taskName}</strong>`;
+        
+        // Reset state if the task has changed
+        if (ledgerState.currentTaskId !== state.selectedTaskId) {
+            ledgerState.chain = [];
+            ledgerState.currentPage = 0;
+            ledgerState.currentTaskId = state.selectedTaskId;
+            renderLedgerPage(); // Renders the placeholder message
+        }
+    }
+
+
     // --- SMART RENDER FUNCTION ---
     function render() {
         const prev = state._prevState;
         
-        // --- FIX: Re-ordered the update logic to prevent race conditions ---
-        // 1. Update the globe's visual state (points, arcs) first.
         if (JSON.stringify(prev.network) !== JSON.stringify(state.network)) {
             updateGlobePointsAndArcs();
         }
         
-        // 2. Then, process task changes which might trigger animations on those visuals.
         if (JSON.stringify(prev.tasks) !== JSON.stringify(state.tasks)) {
             updateTaskSelector();
             updateTaskDetails();
             updateAccuracyChart();
             updateLiveAccuracy();
-            updateGlobeArcs(); // Still call here in case task selection changes arcs
+            updateGlobeArcs();
             updateMarketplace();
             generateLiveLogsAndPulses(prev, state);
         }
@@ -78,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const serverLocation = task ? task.server_location : null;
         state.globe.updateServerPoint(serverLocation);
         const connectedClients = state.network.connected_clients || [];
-        if (serverLocation) { // Only add arcs if a server location is defined for the current task
+        if (serverLocation) {
              connectedClients.forEach(client => {
                 if (client.location) {
                     state.globe.addOrUpdateArc(client.id, client.location, serverLocation);
@@ -94,6 +203,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentTaskIds.length === 0) return;
         if (!state.selectedTaskId || !state.tasks[state.selectedTaskId]) {
             state.selectedTaskId = currentTaskIds[0];
+            // NEW: Prepare ledger for the default task
+            prepareLedgerView();
         }
         const selectedTaskName = state.selectedTaskId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
         selectedTaskDisplay.querySelector('span').textContent = selectedTaskName;
@@ -147,17 +258,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 totalStake += clientTotalStake;
             });
         }
-        document.getElementById('total-stake').textContent = `${totalStake.toFixed(2)} PHOENIX`;
+        document.getElementById('total-stake').textContent = `${totalStake.toFixed(2)} AFT`;
         updateGlobePointsAndArcs();
     }
 
-    // In main.js
-
-function generateLiveLogsAndPulses(prevState, currentState) {
-        console.log("[main.js] Checking for state changes...");
+    function generateLiveLogsAndPulses(prevState, currentState) {
         if (!prevState.tasks || Object.keys(prevState.tasks).length === 0) return;
-
-        // Client connection/disconnection logs
         const prevClients = (prevState.network.connected_clients || []).map(c => c.id);
         const currentClients = (currentState.network.connected_clients || []).map(c => c.id);
         currentClients.filter(id => !prevClients.includes(id)).forEach(id => logEvent(`Client #${id} connected.`));
@@ -165,24 +271,13 @@ function generateLiveLogsAndPulses(prevState, currentState) {
         
         for (const taskId in currentState.tasks) {
             if (!prevState.tasks[taskId]) continue;
-
             const prevTask = prevState.tasks[taskId];
             const currentTask = currentState.tasks[taskId];
-
-            // --- EVENT 1: Round has finished (Server -> Client Pulse) ---
             if (currentTask.current_round > prevTask.current_round) {
-                console.log(`[main.js] EVENT: Round complete for task '${taskId}' (Round ${prevTask.current_round} -> ${currentTask.current_round})`);
                 logEvent(`Task '${taskId}' round ${currentTask.current_round} complete. Metric: ${currentTask.metric_history.slice(-1)[0].toFixed(2)}`);
-                
                 if (state.globe && taskId === state.selectedTaskId) {
-                    console.log(`%c[main.js] Firing broadcast pulses for completed round.`, 'color: #FFA500');
                     state.globe.triggerServerGlow();
-                    
-                    // The clients who participated in the round that just finished
-                    // are in the PREVIOUS state's `selected_clients` list.
                     const participatingClients = prevTask.selected_clients || [];
-                    
-                    console.log(`[main.js] Broadcasting to clients from PREVIOUS round: [${participatingClients.join(', ')}]`);
                     if (participatingClients.length > 0) {
                         participatingClients.forEach((clientId, index) => {
                             setTimeout(() => { state.globe.triggerBroadcastPulse(clientId); }, index * 100);
@@ -190,18 +285,10 @@ function generateLiveLogsAndPulses(prevState, currentState) {
                     }
                 }
             }
-
-            // --- EVENT 2: New round has started (Client -> Server Pulse) ---
             const prevSelected = prevTask.selected_clients || [];
             const currentSelected = currentTask.selected_clients || [];
-            
-            // This event triggers only when the list of clients for a round changes.
             if (JSON.stringify(prevSelected) !== JSON.stringify(currentSelected)) {
-                console.log(`[main.js] EVENT: Selected clients changed for task '${taskId}'. Prev: [${prevSelected.join(', ')}], Curr: [${currentSelected.join(', ')}]`);
-                 
-                // Fire pulses only if there are clients in the NEW list.
                 if (state.selectedTaskId === taskId && state.globe && currentSelected.length > 0) {
-                    console.log(`%c[main.js] Firing client pulses for new round participants.`, 'color: #00BFFF');
                     currentSelected.forEach(clientId => {
                         logEvent(`Client #${clientId} starting training for task '${taskId}'.`, 'success');
                         state.globe.triggerPulse(clientId);
@@ -263,7 +350,6 @@ function generateLiveLogsAndPulses(prevState, currentState) {
         } catch (error) {
             connectionStatusDot.className = 'status-dot disconnected';
             connectionStatusText.textContent = 'Disconnected';
-            // --- MODIFICATION: Don't log the earthmesh error as a generic fetch error ---
             if (!error.message.includes('earthMesh')) {
                 console.error("Fetch error:", error);
             }
@@ -284,7 +370,7 @@ function generateLiveLogsAndPulses(prevState, currentState) {
         }
     }
     
-    // --- EVENT LISTENERS (No changes needed below this line) ---
+    // --- EVENT LISTENERS ---
     sidebarToggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('collapsed');
         const icon = sidebarToggleBtn.querySelector('i');
@@ -310,6 +396,8 @@ function generateLiveLogsAndPulses(prevState, currentState) {
             if (state.globe && newTask && newTask.server_location) { state.globe.flyTo(newTask.server_location); }
             if (state.globe) { state.globe.clearAllArcs(); updateGlobeArcs(); }
             updateTaskSelector(); updateTaskDetails(); updateAccuracyChart(); updateLiveAccuracy();
+            // NEW: Prepare ledger view when task changes
+            prepareLedgerView();
         }
         taskSelectContainer.classList.remove('open');
     });
@@ -332,7 +420,20 @@ function generateLiveLogsAndPulses(prevState, currentState) {
         link.classList.add('active');
         mainContent.querySelector('.view-container.active-view').classList.remove('active-view');
         document.getElementById(link.dataset.view).classList.add('active-view');
+        // NEW: Prepare ledger view when switching to it
+        if (link.dataset.view === 'ledger-view') {
+            prepareLedgerView();
+        }
     });
+
+    // NEW: Ledger event listeners
+    ledgerRefreshBtn.addEventListener('click', fetchAndRenderLedger);
+    ledgerLoadMoreBtn.addEventListener('click', () => {
+        ledgerState.currentPage++;
+        renderLedgerPage();
+    });
+
+
     taskBuilderForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(taskBuilderForm);
@@ -384,7 +485,7 @@ function generateLiveLogsAndPulses(prevState, currentState) {
             const result = await response.json();
             if (!response.ok) { throw new Error(result.error || 'Staking failed'); }
             
-            logEvent(`Client #${clientId} successfully staked ${amount} PHOENIX!`, 'success');
+            logEvent(`Client #${clientId} successfully staked ${amount} AFT!`, 'success');
             input.value = '';
             fetchTokenomicsData();
         } catch (error) {
@@ -405,10 +506,7 @@ function generateLiveLogsAndPulses(prevState, currentState) {
         const globeContainer = document.getElementById('globe-container');
         if (globeContainer) {
             try {
-                // Await the globe's readiness before proceeding
                 state.globe = await createGlobe(globeContainer);
-                
-                // Now that the globe is ready, start polling for data
                 if (document.visibilityState === 'visible') {
                     startPolling();
                     fetchTokenomicsData();

@@ -1,42 +1,42 @@
 {
     "2": {
-        "balance": 17490.0,
+        "balance": 18920.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "4": {
-        "balance": 17390.0,
+        "balance": 10042.0,
         "stake": {
-            "arrhythmia": 100
+            "arrhythmia": 8988.0
         }
     },
     "3": {
-        "balance": 17800.0,
+        "balance": 19320.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "1": {
-        "balance": 17270.0,
+        "balance": 18720.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "0": {
-        "balance": 12175.0,
+        "balance": 13605.0,
         "stake": {
             "arrhythmia": 5655.0
         }
     },
     "10": {
-        "balance": 950.0,
+        "balance": 1020.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "11": {
-        "balance": 950.0,
+        "balance": 960.0,
         "stake": {
             "arrhythmia": 100
         }
@@ -72,6 +72,18 @@
         }
     },
     "16": {
+        "balance": 900,
+        "stake": {
+            "arrhythmia": 100
+        }
+    },
+    "17": {
+        "balance": 900,
+        "stake": {
+            "arrhythmia": 100
+        }
+    },
+    "18": {
         "balance": 900,
         "stake": {
             "arrhythmia": 100

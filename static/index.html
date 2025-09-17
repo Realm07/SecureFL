@@ -210,10 +210,21 @@
 
             <!-- VIEW 4: Federation Ledger -->
             <div id="ledger-view" class="view-container">
-                <h1 class="view-header">Federation Ledger</h1>
+                <div class="view-header-controls">
+                    <h1 class="view-header">Federation Ledger</h1>
+                    <div class="ledger-controls">
+                        <span id="ledger-task-display">Viewing ledger for: <strong>None</strong></span>
+                        <button id="ledger-refresh-btn" class="button-primary"><i class="fas fa-sync-alt"></i> Refresh</button>
+                    </div>
+                </div>
                 <div id="ledger-content-wrapper" class="ledger-content-wrapper">
-                    <!-- JS will populate this -->
-                    <p>Select a task from the Monitor view to see its ledger.</p>
+                    <div class="ledger-grid" id="ledger-grid">
+                        <!-- JS will populate this -->
+                        <p class="placeholder-message">Select a task from the Monitor view and click Refresh to see its ledger.</p>
+                    </div>
+                </div>
+                <div class="ledger-pagination">
+                    <button id="ledger-load-more-btn" class="button-primary" style="display: none;">Load Older Blocks</button>
                 </div>
             </div>
 

@@ -1,11 +1,11 @@
 // --- CONSTANTS ---
 const GLOBE_RADIUS = 100;
-const CLIENT_POINT_RADIUS = 0.7;
-const SERVER_POINT_RADIUS = 2.0;
-const PULSE_CYLINDER_HEIGHT = 5;
-const PULSE_MAIN_RADIUS = 0.8;
-const PULSE_GLOW_RADIUS = 1.5;
-const ARC_THICKNESS = 0.25;
+const CLIENT_POINT_RADIUS = 0.9;
+const SERVER_POINT_RADIUS = 2.3;
+const PULSE_CYLINDER_HEIGHT = 7;
+const PULSE_MAIN_RADIUS = 0.9;
+const PULSE_GLOW_RADIUS = 1.75;
+const ARC_THICKNESS = 0.35;
 
 // --- UTILITY FUNCTIONS ---
 function latLonToVector3(lat, lon, radius) {
@@ -20,7 +20,7 @@ function latLonToVector3(lat, lon, radius) {
 function createCurve(startVec, endVec) {
     const midPoint = startVec.clone().lerp(endVec, 0.5);
     const distance = startVec.distanceTo(endVec);
-    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 1.75);
+    midPoint.normalize().multiplyScalar(GLOBE_RADIUS + distance * 2.0);
     const controlPoint1 = startVec.clone().lerp(midPoint, 0.25);
     const controlPoint2 = endVec.clone().lerp(midPoint, 0.25);
     return new THREE.CubicBezierCurve3(startVec, controlPoint1, controlPoint2, endVec);
@@ -180,8 +180,8 @@ function createGlobe(container) {
                     if (data.tokenomics) {
                         const balance = (data.tokenomics.balance || 0).toFixed(2);
                         const stake = (data.tokenomics.total_stake || 0).toFixed(2);
-                        content += `<div style="margin-top: 5px;">Balance: ${balance} PHOENIX</div>`;
-                        content += `<div>Stake: ${stake} PHOENIX</div>`;
+                        content += `<div style="margin-top: 5px;">Balance: ${balance} AFT</div>`; // <-- Change here
+                        content += `<div>Stake: ${stake} AFT</div>`; // <-- Change here
                     }
                     tooltipElement.innerHTML = content;
                     tooltipElement.style.display = 'block';
