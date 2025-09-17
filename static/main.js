@@ -31,11 +31,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const marketplaceGrid = document.getElementById('marketplace-grid');
     const rotationToggle = document.getElementById('toggle-rotation');
     const cloudsToggle = document.getElementById('toggle-clouds');
-    // NEW: Ledger DOM references
+    // Ledger DOM references
     const ledgerGrid = document.getElementById('ledger-grid');
     const ledgerRefreshBtn = document.getElementById('ledger-refresh-btn');
     const ledgerLoadMoreBtn = document.getElementById('ledger-load-more-btn');
     const ledgerTaskDisplay = document.getElementById('ledger-task-display');
+    // --- NEW: Client ID Modal DOM References ---
+    const clientIdModalOverlay = document.getElementById('client-id-modal-overlay');
+    const clientIdForm = document.getElementById('client-id-form');
+    const clientIdInput = document.getElementById('client-id-input');
+    const modalHeaderText = clientIdModalOverlay.querySelector('.modal-header');
+    const modalBodyText = clientIdModalOverlay.querySelector('.modal-text');
+
 
     // --- LOGGING ---
     function logEvent(message, type = 'info') {
@@ -56,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- NEW: LEDGER FUNCTIONS ---
+    // --- LEDGER FUNCTIONS ---
     function renderLedgerBlock(block) {
         const metricName = state.tasks[ledgerState.currentTaskId]?.metric?.toUpperCase() || 'METRIC';
         const metricValue = block.round_data.global_model_accuracy !== undefined ? block.round_data.global_model_accuracy.toFixed(2) : 'N/A';
@@ -203,7 +210,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentTaskIds.length === 0) return;
         if (!state.selectedTaskId || !state.tasks[state.selectedTaskId]) {
             state.selectedTaskId = currentTaskIds[0];
-            // NEW: Prepare ledger for the default task
             prepareLedgerView();
         }
         const selectedTaskName = state.selectedTaskId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -370,6 +376,54 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    // --- NEW: Custom Modal Logic ---
+    function getClientIdWithModal(taskId, amount) {
+        return new Promise((resolve, reject) => {
+            // Update modal text for context
+            modalHeaderText.textContent = `Stake on Task: ${taskId.replace(/_/g, ' ')}`;
+            modalBodyText.textContent = `You are about to stake ${amount} AFT. Please confirm your Client ID to proceed.`;
+
+            clientIdModalOverlay.classList.add('visible');
+            clientIdInput.value = ''; // Clear previous input
+            clientIdInput.focus();
+
+            const handleSubmit = (event) => {
+                event.preventDefault();
+                const clientId = clientIdInput.value;
+                if (clientId.trim() !== '') {
+                    cleanupAndResolve(clientId);
+                }
+            };
+
+            const handleCancel = (event) => {
+                if (event.target === clientIdModalOverlay) {
+                    cleanupAndReject();
+                }
+            };
+            
+            const cleanup = () => {
+                clientIdModalOverlay.classList.remove('visible');
+                clientIdForm.removeEventListener('submit', handleSubmit);
+                clientIdModalOverlay.removeEventListener('click', handleCancel);
+            };
+
+            const cleanupAndResolve = (value) => {
+                cleanup();
+                resolve(value);
+            };
+
+            const cleanupAndReject = () => {
+                cleanup();
+                reject(new Error("User cancelled the operation."));
+            };
+
+            // Attach event listeners
+            clientIdForm.addEventListener('submit', handleSubmit);
+            clientIdModalOverlay.addEventListener('click', handleCancel);
+        });
+    }
+
+
     // --- EVENT LISTENERS ---
     sidebarToggleBtn.addEventListener('click', () => {
         sidebar.classList.toggle('collapsed');
@@ -396,7 +450,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (state.globe && newTask && newTask.server_location) { state.globe.flyTo(newTask.server_location); }
             if (state.globe) { state.globe.clearAllArcs(); updateGlobeArcs(); }
             updateTaskSelector(); updateTaskDetails(); updateAccuracyChart(); updateLiveAccuracy();
-            // NEW: Prepare ledger view when task changes
             prepareLedgerView();
         }
         taskSelectContainer.classList.remove('open');
@@ -420,13 +473,11 @@ document.addEventListener('DOMContentLoaded', () => {
         link.classList.add('active');
         mainContent.querySelector('.view-container.active-view').classList.remove('active-view');
         document.getElementById(link.dataset.view).classList.add('active-view');
-        // NEW: Prepare ledger view when switching to it
         if (link.dataset.view === 'ledger-view') {
             prepareLedgerView();
         }
     });
 
-    // NEW: Ledger event listeners
     ledgerRefreshBtn.addEventListener('click', fetchAndRenderLedger);
     ledgerLoadMoreBtn.addEventListener('click', () => {
         ledgerState.currentPage++;
@@ -451,6 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- MODIFIED: Marketplace click listener to use custom modal ---
     marketplaceGrid.addEventListener('click', async (e) => {
         if (!e.target.matches('.stake-button')) return;
 
@@ -464,11 +516,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const clientIdStr = prompt("Enter your Client ID (0-9) to stake tokens:", "0");
-        if (clientIdStr === null) return;
-        const clientId = parseInt(clientIdStr);
+        let clientIdStr;
+        try {
+            clientIdStr = await getClientIdWithModal(taskId, amount);
+        } catch (error) {
+            logEvent('Stake operation cancelled.', 'info');
+            return; // Exit if user cancels
+        }
+        
+        const clientId = parseInt(clientIdStr, 10);
         if (isNaN(clientId)) {
-            logEvent('Invalid Client ID.', 'error');
+            logEvent('Invalid Client ID entered.', 'error');
             return;
         }
 

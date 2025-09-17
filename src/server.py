@@ -543,7 +543,7 @@ async def async_orchestrator_loop(task: FederationTask):
         await task.execute_asynchronous_aggregation(manager)
 
 async def start_orchestrator(task: FederationTask):
-    await asyncio.sleep(random.uniform(1.0, 5.0))
+    await asyncio.sleep(random.uniform(1.0, 2.0))
     task_log(task.task_id, f"Orchestrator started (Mode: {task.learning_mode}).")
     initial_metric, _ = evaluate_global_model(task.global_model, task.test_loader, task.config['device'], task.config['metric'])
     metric_name, metric_unit = task.config['metric'].upper(), "cycles" if task.config['metric'] == "rmse" else "%"

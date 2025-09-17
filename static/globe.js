@@ -29,7 +29,7 @@ function createCurve(startVec, endVec) {
 // --- MAIN GLOBE FUNCTION ---
 function createGlobe(container) {
     return new Promise((resolve, reject) => {
-        let scene, camera, renderer, controls, earthMesh, cloudsMesh, composer;
+        let scene, camera, renderer, controls, earthMesh, cloudsMesh; // Removed composer
         let clientPoints = new Map();
         let serverPoint = null;
         let serverGlow = null;
@@ -160,7 +160,7 @@ function createGlobe(container) {
             camera.aspect = container.clientWidth / container.clientHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(container.clientWidth, container.clientHeight);
-            composer.setSize(container.clientWidth, container.clientHeight);
+            // composer.setSize(container.clientWidth, container.clientHeight); // Removed
         }
 
         function onMouseMove(event) {
@@ -265,7 +265,7 @@ function createGlobe(container) {
                 });
             }
             if (tooltipElement) tooltipElement.remove();
-            scene = null; camera = null; renderer = null; controls = null; composer = null;
+            scene = null; camera = null; renderer = null; controls = null; // Removed composer
             clientPoints.clear(); activeArcs.clear(); activePulses = [];
         }
 
@@ -275,7 +275,7 @@ function createGlobe(container) {
             if (cloudsMesh && cloudsMesh.visible) cloudsMesh.rotation.y += 0.0001;
             animatePulses();
             controls.update();
-            composer.render();
+            renderer.render(scene, camera); // Changed from composer.render()
         }
 
         function init() {
@@ -322,9 +322,11 @@ function createGlobe(container) {
                 scene.add(atmosphere);
                 scene.add(new THREE.HemisphereLight(0xffffff, 0x4A90E2, 0.6));
                 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-                composer = new THREE.EffectComposer(renderer);
-                composer.addPass(new THREE.RenderPass(scene, camera));
-                composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85));
+                
+                // --- REMOVED POST-PROCESSING ---
+                // composer = new THREE.EffectComposer(renderer);
+                // composer.addPass(new THREE.RenderPass(scene, camera));
+                // composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.7, 0.5, 0.85));
 
                 animate();
                 window.addEventListener('resize', onWindowResize);
