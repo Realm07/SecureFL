@@ -97,12 +97,38 @@ class LSTMAttention(nn.Module):
         out = self.fc(context_vector)
         return out
     
+class SimpleMLP(nn.Module):
+    """A simple MLP model for MNIST, includes a flatten layer."""
+    def __init__(self, num_features=784, num_classes=10):
+        super(SimpleMLP, self).__init__()
+        self.fc1 = nn.Linear(num_features, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        # IMPORTANT: Flatten the image from [batch_size, 1, 28, 28] to [batch_size, 784]
+        x = x.view(x.shape[0], -1) 
+        
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
 def get_model(config):
     """Factory function to return the appropriate model."""
     model_name = config.get('model_name')
+    
+    # --- NEW LOGIC HERE ---
+    # If the model is mlp AND the dataset is mnist, use our new SimpleMLP
+    if model_name == 'mlp' and config.get('dataset_name') == 'mnist':
+        return SimpleMLP(
+            num_features=config['num_features'],
+            num_classes=config.get('num_classes', 10) # Default to 10 for MNIST
+        )
+    
     if model_name == 'cnn':
         return SmallerCNN()
-    elif model_name == 'mlp':
+    elif model_name == 'mlp': # This will now only catch Arrhythmia
         return ArrhythmiaMLP(
             num_features=config['num_features'], 
             num_classes=config['num_classes']

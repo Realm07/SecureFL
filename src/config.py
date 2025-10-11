@@ -1,3 +1,5 @@
+# In src/config.py
+
 import torch
 import os
 
@@ -51,16 +53,21 @@ def get_config(dataset_name="mnist"):
             'sequence_length': 10,
             'encrypted_layers': ['fc.weight', 'fc.bias', 'attention_layer.0.weight', 'attention_layer.0.bias', 'attention_layer.2.weight', 'attention_layer.2.bias'],
         })
-    else:
+    else: # This block is for MNIST
         config.update({
             'dataset_name': dataset_name,
             'model_name': 'mlp',
             'learning_mode': 'synchronous',
             'num_rounds': 10,
-            'local_epochs': 5,
-            'learning_rate': 0.001,
-            'optimizer': 'adam',
-            'metric': 'accuracy'
+            'local_epochs': 10,
+            'learning_rate': 0.01,
+            'optimizer': 'adam', # Baseline uses Adam, will be overridden for DP run
+            'metric': 'accuracy',
+            'num_features': 784,
+            # --- CRITICAL CHANGE HERE ---
+            # A larger batch size is crucial for stabilizing gradients in DP-SGD with Opacus.
+            # It creates a better signal-to-noise ratio.
+            'batch_size': 128, 
         })
 
     return config

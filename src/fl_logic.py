@@ -5,6 +5,8 @@ import copy
 import time
 import traceback
 from collections import OrderedDict
+
+from src import data_loader
 from .he_tenseal import encrypt_state_dict_tenseal
 from opacus import PrivacyEngine
 from torch.utils.data import DataLoader
@@ -14,9 +16,14 @@ def _create_optimizer(model, config):
     lr = config.get('learning_rate', 0.01)
     weight_decay = config.get('weight_decay', 0)
     
-    if config['optimizer'].lower() == 'adam':
+    # --- MODIFIED LOGIC ---
+    optimizer_name = config.get('optimizer', 'adam').lower()
+
+    if optimizer_name == 'adam':
         return optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    elif config['optimizer'].lower() == 'sgd':
+    elif optimizer_name == 'sgd':
+        # SGD is often more stable for DP training.
+        # It's common to add momentum to SGD, but we'll start without it for simplicity.
         return optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
     else:
         raise ValueError(f"Unsupported optimizer: {config['optimizer']}")
@@ -33,7 +40,7 @@ def _attach_dp_engine(model, optimizer, dataloader, config):
     )
     return model, optimizer, dataloader, privacy_engine
 
-def train_local_client_plaintext(model, dataloader, config):
+def train_local_client_plaintext(model, dataloader, config, is_malicious=False): # Add is_malicious flag
     local_model = copy.deepcopy(model).to(config['device'])
     local_model.train()
     optimizer = _create_optimizer(local_model, config)
@@ -43,11 +50,26 @@ def train_local_client_plaintext(model, dataloader, config):
         gamma=config.get('lr_scheduler_gamma', 1.0)
     )
     criterion = nn.CrossEntropyLoss()
-    print(f"  Starting local training (PLAINTEXT - {config['local_epochs']} epochs)...")
+    
+    # NEW: Identify the attack parameters from config
+    attack_target_class = config.get('attack_target_class', 1)
+    attack_poison_class = config.get('attack_poison_class', 7)
+
+    # Modify the log message to indicate if the client is malicious
+    malicious_str = " (MALICIOUS)" if is_malicious else ""
+    print(f"  Starting local training (PLAINTEXT - {config['local_epochs']} epochs){malicious_str}...")
+    
     train_start = time.time()
     try:
         for _ in range(config['local_epochs']):
             for data, target in dataloader:
+                # NEW: Label-Flipping Attack Logic
+                if is_malicious:
+                    # Create a mask to select only samples of the target class
+                    mask = target == attack_target_class
+                    # Change their labels to the poison class
+                    target[mask] = attack_poison_class
+
                 data, target = data.to(config['device']), target.to(config['device'])
                 optimizer.zero_grad(); output = local_model(data); loss = criterion(output, target)
                 loss.backward(); optimizer.step()
@@ -63,7 +85,8 @@ def train_local_client_secure(model, dataloader, config, context, slot_count):
     Trains a local client model with a specified privacy profile.
     The profile is read from the config dictionary.
     """
-    privacy_profile = config.get('privacy_profile', 'she')
+    # This line now correctly reads the profile passed in the config
+    privacy_profile = config.get('privacy_profile', 'she') 
     initial_state_dict = copy.deepcopy(model.state_dict())
     
     device = torch.device(config.get('device', 'cpu'))

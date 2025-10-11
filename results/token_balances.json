@@ -1,36 +1,36 @@
 {
     "2": {
-        "balance": 19300.0,
+        "balance": 21190.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "4": {
-        "balance": 10422.0,
+        "balance": 12342.0,
         "stake": {
             "arrhythmia": 8988.0
         }
     },
     "3": {
-        "balance": 19690.0,
+        "balance": 21740.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "1": {
-        "balance": 19140.0,
+        "balance": 21040.0,
         "stake": {
             "arrhythmia": 100
         }
     },
     "0": {
-        "balance": 13945.0,
+        "balance": 15874.0,
         "stake": {
-            "arrhythmia": 5655.0
+            "arrhythmia": 5786.0
         }
     },
     "10": {
-        "balance": 1020.0,
+        "balance": 1030.0,
         "stake": {
             "arrhythmia": 100
         }
