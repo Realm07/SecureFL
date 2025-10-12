@@ -21,7 +21,7 @@ def get_config(dataset_name="mnist"):
             'dataset_name': 'arrhythmia', 'model_name': 'mlp',
             'learning_mode': 'synchronous',  # This task will run in the classic round-based mode
             'model_save_path': 'trained_arrhythmia_model.pth', 'num_rounds': 25,
-            'local_epochs': 5, 'learning_rate': 0.001, 'optimizer': 'adam',
+            'local_epochs': 5, 'learning_rate': 0.05, 'optimizer': 'sgd',
             'weight_decay': 1e-5, 'metric': 'accuracy',
             'delta': 1e-5,
             'num_features': 13,
@@ -30,7 +30,7 @@ def get_config(dataset_name="mnist"):
                 'layer_3.weight', 'layer_3.bias',
                 'layer_out.weight', 'layer_out.bias'
             ],
-            'dp_noise_multiplier': 1.5, 'dp_max_grad_norm': 1.2
+            'dp_noise_multiplier': 0.5, 'dp_max_grad_norm': 1.2
         })
     elif dataset_name == "nasa_battery":
         config.update({

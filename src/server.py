@@ -15,7 +15,7 @@ import hashlib
 from enum import Enum
 from pydantic import BaseModel
 import secrets
-
+import time
 from .config import get_config
 from .models import get_model
 from .he_tenseal import aggregate_and_decrypt_tenseal
@@ -68,7 +68,7 @@ class FederationTask:
         else:
             self.config = data_manager.get_task_config(task_id)
 
-        self.config['clients_per_round'] = 3
+        self.config['clients_per_round'] = 5
 
         self.learning_mode = self.config.get('learning_mode', 'synchronous')
         
@@ -112,14 +112,17 @@ class FederationTask:
         filepath = os.path.join(results_dir, filename)
         self.csv_file = open(filepath, 'w', newline='')
         self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(['round', self.config['metric'], 'profile'])
+        # --- MODIFIED LINE ---
+        self.csv_writer.writerow(['round', self.config['metric'], 'profile', 'round_wall_time_seconds', 'aggregation_compute_seconds'])
+        # --- END MODIFICATION ---
         self.csv_file.flush()
         print(f"--- Task '{self.task_id}' logging to {filepath} ---")
-    
+
     def is_complete(self):
         return self.current_round >= self.config['num_rounds']
     
     async def execute_synchronous_round(self, manager_instance):
+        round_start_time = time.time()
         self.status = TaskStatus.RUNNING_ROUND
         self.current_round += 1
         round_num = self.current_round
@@ -172,7 +175,7 @@ class FederationTask:
         
         updates = self.updates_for_round.get(round_num, [])
         if len(updates) > 0:
-            success = await self._aggregate_and_update_model(updates, selected_clients)
+            success = await self._aggregate_and_update_model(updates, selected_clients, round_start_time)
             if success:
                 for client_id in selected_clients:
                     if isinstance(manager_instance.connected_clients.get(client_id), ControllerClientPlaceholder):
@@ -188,14 +191,25 @@ class FederationTask:
         
         self._check_completion()
         
-    async def _aggregate_and_update_model(self, updates, clients) -> bool:
+    # In FederationTask class
+    async def _aggregate_and_update_model(self, updates, clients, start_time) -> bool:
         try:
+            # --- NEW: Start compute timer ---
+            compute_start_time = time.process_time()
+
             avg_delta = await asyncio.to_thread(aggregate_and_decrypt_tenseal, manager.context, updates, len(updates))
+            
+            # --- NEW: End compute timer ---
+            aggregation_compute_duration = time.process_time() - compute_start_time
+
             if avg_delta:
                 self._apply_update(avg_delta)
-                metric_val = self._evaluate_and_log(self.current_round)
+                round_wall_duration = time.time() - start_time
+                # --- MODIFIED: Pass both metrics to the logger ---
+                metric_val = self._evaluate_and_log(self.current_round, round_wall_duration, aggregation_compute_duration)
                 manager.token_manager.reward_clients(clients, manager.REWARD_AMOUNT)
                 self.ledger.add_round_to_ledger(self.current_round, clients, hash_model_state(self.global_model), metric_val)
+                task_log(self.task_id, f"Aggregation compute time: {aggregation_compute_duration:.4f} seconds.")
                 return True
             else:
                 task_log(self.task_id, f"Aggregation failed for round/event {self.current_round}.")
@@ -206,6 +220,7 @@ class FederationTask:
             return False
         
     async def execute_asynchronous_aggregation(self, manager_instance):
+        agg_start_time = time.time()
         min_updates = self.config.get('min_updates_for_aggregation', 1)
         if len(self.update_buffer) < min_updates:
             self.status = TaskStatus.WAITING_FOR_CLIENTS
@@ -224,11 +239,11 @@ class FederationTask:
          
         task_log(self.task_id, f"--- Aggregation {self.current_round}/{self.config['num_rounds']} with {len(final_updates)} updates from clients: {participating_clients} ---")
         
-        await self._aggregate_and_update_model(final_updates, participating_clients)
+        await self._aggregate_and_update_model(final_updates, participating_clients, agg_start_time)
         
         self.model_version += 1
         await manager_instance.broadcast_model(self)
-
+        agg_duration = time.time() - agg_start_time
         self._check_completion()
 
     def _check_completion(self):
@@ -272,12 +287,15 @@ class FederationTask:
             new_dict[key] = current_dict[key] - update_step
         self.global_model.load_state_dict(new_dict)
 
-    def _evaluate_and_log(self, round_num):
+    # In FederationTask class
+    def _evaluate_and_log(self, round_num, round_wall_duration, aggregation_compute_duration):
         metric_val, _ = evaluate_global_model(self.global_model, self.test_loader, self.config['device'], self.config['metric'])
         metric_name, metric_unit = self.config['metric'].upper(), "cycles" if self.config['metric'] == "rmse" else "%"
-        task_log(self.task_id, f"--- Round/Aggregation {round_num} Complete --- {metric_name}: {metric_val:.2f} {metric_unit} ---")
+        task_log(self.task_id, f"--- Round/Aggregation {round_num} Complete --- {metric_name}: {metric_val:.2f} {metric_unit} --- Wall Time: {round_wall_duration:.2f}s ---")
         self.metric_history.append(metric_val)
-        self.csv_writer.writerow([round_num, metric_val, self.privacy_profile])
+        # --- MODIFIED LINE ---
+        self.csv_writer.writerow([round_num, metric_val, self.privacy_profile, round_wall_duration, aggregation_compute_duration])
+        # --- END MODIFICATION ---
         self.csv_file.flush()
         return metric_val
 
@@ -352,11 +370,18 @@ class ControllerManager:
 class ServerManager:
     def __init__(self):
         self.connected_clients: Dict[int, WebSocket | ControllerClientPlaceholder] = {}
-        self.data_manager = DataManager(['arrhythmia', 'nasa_battery'], get_config)
+        # --- MODIFIED LINE: Only load the arrhythmia dataset ---
+        self.data_manager = DataManager(['arrhythmia'], get_config)
+        
+        # --- MODIFIED BLOCK: Only define the two arrhythmia experiment tasks ---
         self.tasks: Dict[str, FederationTask] = {
-            "arrhythmia": FederationTask("arrhythmia", "she_dp", self.data_manager),
-            "nasa_battery": FederationTask("nasa_battery", "she", self.data_manager)
+            "arrhythmia_plaintext": FederationTask("arrhythmia_plaintext", "she", self.data_manager, 
+                                                   custom_config={'dataset_name': 'arrhythmia'}),
+            "arrhythmia_she_dp": FederationTask("arrhythmia_she_dp", "she_dp", self.data_manager,
+                                                custom_config={'dataset_name': 'arrhythmia'})
         }
+        # --- END MODIFICATION ---
+
         token_file = os.path.join(get_config('arrhythmia')['results_dir'], 'token_balances.json')
         self.token_manager = TokenManager(storage_path=token_file)
         self.controller_manager = ControllerManager()
@@ -510,7 +535,6 @@ async def admin_kick_client(request: AdminActionRequest):
 async def sync_orchestrator_loop(task: FederationTask):
     while not task.is_complete():
         await task.execute_synchronous_round(manager)
-        await task.wait_for_client_acknowledgements()
 
 async def async_orchestrator_loop(task: FederationTask):
     await manager.broadcast_model(task)
@@ -518,6 +542,7 @@ async def async_orchestrator_loop(task: FederationTask):
         await asyncio.sleep(task.config.get('aggregation_interval_seconds', 30))
         await task.execute_asynchronous_aggregation(manager)
 
+# This is a global function, not in a class
 async def start_orchestrator(task: FederationTask):
     await asyncio.sleep(random.uniform(1.0, 2.0))
     task_log(task.task_id, f"Orchestrator started (Mode: {task.learning_mode}).")
@@ -525,7 +550,9 @@ async def start_orchestrator(task: FederationTask):
     metric_name, metric_unit = task.config['metric'].upper(), "cycles" if task.config['metric'] == "rmse" else "%"
     task_log(task.task_id, f"Initial Global Model {metric_name}: {initial_metric:.2f} {metric_unit}")
     task.metric_history.append(initial_metric)
-    task.csv_writer.writerow([0, initial_metric, task.privacy_profile])
+    # --- MODIFIED LINE ---
+    task.csv_writer.writerow([0, initial_metric, task.privacy_profile, 0.0, 0.0])
+    # --- END MODIFICATION ---
     task.csv_file.flush()
     task.status = TaskStatus.IDLE
     await (async_orchestrator_loop(task) if task.learning_mode == 'asynchronous' else sync_orchestrator_loop(task))
@@ -555,9 +582,24 @@ CLIENT_LOCATIONS = {
 }
 TASK_SERVER_LOCATIONS = {"arrhythmia": {"name": "Zurich", "lat": 47.37, "lon": 8.54}, "nasa_battery": {"name": "Houston", "lat": 29.76, "lon": -95.36}}
 
+async def run_tasks_sequentially():
+    """
+    An async function that runs all defined tasks one after another.
+    This allows the main server to start up without being blocked.
+    """
+    task_log("MAIN", "Sequential task runner started.")
+    # The loop now lives here, safely in a background task
+    for task in manager.tasks.values():
+        await start_orchestrator(task)
+    
+    task_log("MAIN", "--- All experiments complete. You can now stop the server. ---")
+
+
 @app.on_event("startup")
 async def startup_event():
-    for task in manager.tasks.values(): asyncio.create_task(start_orchestrator(task))
+    # We schedule our sequential runner as a single, non-blocking background task.
+    # This function now finishes instantly, allowing uvicorn to start accepting clients.
+    asyncio.create_task(run_tasks_sequentially())
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: int):

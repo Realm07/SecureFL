@@ -3,7 +3,7 @@ import traceback
 import websockets
 import argparse
 import json
-import torch
+import time
 import tenseal as ts
 import gc
 import math
@@ -31,9 +31,12 @@ async def run_training_and_send_update(client_id: int, task_id: str, payload: di
         local_model = get_model(config)
         deserialize_model(local_model, payload['model_state_dict'])
         
+        # --- MODIFIED: Pass client_id and round number to the training function ---
+        round_num = payload.get('round', payload.get('model_version', 0))
         encrypted_update = await asyncio.to_thread(
-            train_local_client_secure, local_model, dataloader, config, context, slot_count
+            train_local_client_secure, client_id, round_num, local_model, dataloader, config, context, slot_count
         )
+        # --- END MODIFICATION ---
         
         if encrypted_update and websocket_connection:
             update_str = serialize_model_update(encrypted_update)
